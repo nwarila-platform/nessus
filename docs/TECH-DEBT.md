@@ -54,3 +54,15 @@
   Windows connections. See `ansible/inventory/README.md`.
 - **Exit criteria:** the reference inventory carries both, and this repository's copy is
   byte-identical to it outside the "This Repository" region again.
+
+## TD-006 — OPEN — no PowerShell gate, because there is no PowerShell
+
+- **Recorded:** 2026-09-30.
+- **Issue:** the reference repository carries `.github/workflows/powershell.yml`, a thin caller for
+  the organization's pester-matrix. At the reference pin (#34) that matrix refuses an empty
+  discovery by design ("an empty matrix passing would hide a broken path"), and this repository
+  has no `<Name>.ps1` + `<Name>.pester.ps1` pair: every run of the copied caller failed on
+  2026-09-30 for that reason alone. Carrying a workflow that can only fail, or a placeholder script
+  to feed it, would be worse than carrying none.
+- **Exit criteria:** the first script pair lands under `scripts/` together with the reference
+  `powershell.yml`, byte-identical to the reference, and its matrix passes.
