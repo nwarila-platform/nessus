@@ -9,7 +9,7 @@
         },
         {
           "name": "nwarila-platform_nessus_runner_ebs",
-          "version": "v1"
+          "version": "v2"
         },
         {
           "name": "nwarila-platform_nessus_runner_ec2",
@@ -75,7 +75,7 @@
       "attached": [
         {
           "name": "nwarila-platform_nessus_runner_ebs",
-          "version": "v1"
+          "version": "v2"
         },
         {
           "name": "nwarila-platform_nessus_runner_ec2",
@@ -202,9 +202,7 @@
     }
   },
   "divergence": {
-    "note": "A policy named in not_yet_applied differs from live AWS as last exported on 2026-09-30: its tracked document is the desired state and the live default version is not. Every other tracked policy document matched live at that export. This is a point-in-time claim, re-established by exporting live IAM after an operator applies the change.",
-    "not_yet_applied": [
-      "nwarila-platform_nessus_runner_ebs"
-    ]
+    "note": "An empty not_yet_applied list means the tracked desired IAM policy documents matched live AWS as last exported on 2026-09-30, after nwarila-platform_nessus_runner_s3 v2 and nwarila-platform_nessus_runner_ebs v2 were published from the tracked documents. This is a point-in-time claim re-established by the mandatory live round-trip check, not a guarantee of current live state.",
+    "not_yet_applied": []
   }
 }
