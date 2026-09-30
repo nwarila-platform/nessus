@@ -1,4 +1,4 @@
-b1385902e593515424d06e8c61fa2e448740839111a9a6e0bb04424f57ca72f5  ./README.md
+a84d8fad32c55b9a98a4682599a5284533d0e4ae31c9d4b19340bb71fbefa77e  ./README.md
 6b4ab851694616d1dd59a73cb07081175f59f45f4e121ca1b65c52a000c5a037  ./aws/artifacts.yml
 e965526f6b2f653caa87fa74ccd57264dced0788570fd58fd96fdb1e7b8198af  ./aws/manifest.json
 68f3de20666df033a037f8c8f41ec32c92a7e1fbd5ebe0f17e7b5b7a12a2349f  ./aws/policies/nwarila-platform_nessus_admin_s3.json

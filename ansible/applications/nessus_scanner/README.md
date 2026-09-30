@@ -28,7 +28,12 @@ Every step reads before it writes, so a converged host reports no change.
 The role treats its install root, `/opt/nessus`, as the unit of the scanner's data: binaries,
 plugins, settings, certificates, accounts and scan results. In the composed play it is its own
 volume, mounted there by `linux_disk_manager` before this role runs, so the OS disk can be
-replaced underneath it. On a replacement OS the role:
+replaced underneath it.
+
+The role **always** supports either kind of data disk, blank or preserved, with no mode or flag.
+Every step reads what is already there and writes only what differs, so a preserved disk is
+adopted rather than overwritten. On a replacement OS, or a new instance seeded from a preserved
+snapshot, the role:
 - reinstalls the package over the preserved tree;
 - finds the settings, certificate and account already in place, and writes none of them;
 - registers again, because Tenable binds a registration to the machine. On 2026-09-30 a preserved

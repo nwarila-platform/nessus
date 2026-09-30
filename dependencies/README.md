@@ -30,7 +30,7 @@ empty: the scanner joins no directory.
 
 ## Changes from the fleet baseline
 
-**`nwarila-platform_nessus_runner_ebs` v3 (published 2026-09-30):** the `preserve_data` grants.
+**`nwarila-platform_nessus_runner_ebs` v3 (published 2026-09-30):** the data-preservation grants.
 - `ec2:DescribeSnapshots`.
 - `ec2:CreateSnapshot`, but only from this repository's own volumes, and only into snapshots
   requested with `Preserve=true`, `ManagedBy=aws-deploy` and this repository's identity tags.

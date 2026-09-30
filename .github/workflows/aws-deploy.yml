@@ -25,9 +25,11 @@
 #   * The scanner's whole install root is a standalone data volume, so the OS disk is
 #     replaceable: os_swap bumps refresh_serial, re-converges onto the re-attached volume, and
 #     proves Nessus reads back a record written into its database before the replacement.
-#   * preserve_data (opt-in) seeds the data volume from the newest snapshot tagged Preserve=true
-#     and, at teardown, stops the instance and snapshots the volume again before it is destroyed:
-#     compute stays ephemeral while the scanner's data carries from one run to the next.
+#   * Every run starts its data volume from the newest snapshot tagged Preserve=true when one
+#     exists -- a preserved disk is always used when it is available -- and from blank otherwise
+#     or when fresh_data asks for the from-scratch proof. preserve_data (opt-in) decides whether
+#     THIS run's volume is preserved: at teardown the instance is stopped and the volume
+#     snapshotted before it is destroyed. Compute stays ephemeral; the scanner's data carries.
 #   * One fixed state key; this workflow's concurrency group prevents overlapping applies and
 #     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply,
 #     and aws-reaper.yml destroys what a run killed before destroy leaves behind.
@@ -50,7 +52,11 @@ name: AWS Deploy
         type: boolean
         default: false
       preserve_data:
-        description: Start from the newest preserved data snapshot, and preserve this run's data volume at teardown
+        description: Preserve this run's data volume at teardown, as the snapshot later runs start from
+        type: boolean
+        default: false
+      fresh_data:
+        description: Ignore preserved snapshots and start from a blank data volume (the from-scratch proof)
         type: boolean
         default: false
       absent_proof:
@@ -133,6 +139,14 @@ jobs:
               exit 1
               ;;
           esac
+
+      # An absent proof empties the data volume. Preserving it would make an empty disk the newest
+      # preserved snapshot -- the one every later run starts from -- and retire a real one.
+      - name: Refuse to preserve a volume the absent proof empties
+        if: inputs.preserve_data && inputs.absent_proof
+        run: |
+          echo "::error::preserve_data would preserve the volume absent_proof empties; dispatch them separately."
+          exit 1
 
       - name: Set up pinned Python
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
@@ -295,17 +309,19 @@ jobs:
           echo "DEBUG_IP=${debug_ip}" >> "${GITHUB_ENV}"
           echo 'operator IPv4 resolved and validated'
 
-      # Every Terraform command below reads this one file. A preserve_data run swaps it for a
-      # runtime copy that seeds the data volume from a snapshot; nothing else ever differs.
+      # Every Terraform command below reads this one file. When a preserved snapshot seeds the data
+      # volume, it becomes a runtime copy naming that snapshot; nothing else ever differs.
       - name: Select the Terraform input
         run: echo "TFVARS_FILE=${GITHUB_WORKSPACE}/terraform/aws.tfvars" >> "${GITHUB_ENV}"
 
-      # DATA PRESERVATION (opt-in). The newest completed snapshot tagged Preserve=true for this
-      # repository becomes the data volume's source, so the converge adopts a volume that already
-      # holds the scanner's settings, certificate, account, plugins and scan data. With none yet,
-      # the run starts blank and its teardown writes the first one.
+      # DATA PRESERVATION. Whenever a preserved snapshot exists it is used: the newest completed
+      # snapshot tagged Preserve=true for this repository becomes the data volume's source, so the
+      # converge adopts a volume that already holds the scanner's settings, certificate, account,
+      # plugins and scan data. With none yet -- or when fresh_data asks for the from-scratch
+      # proof -- the run starts blank. On push and schedule runs fresh_data is unset, so they
+      # always start from the preserved disk when there is one.
       - name: Seed the data volume from the newest preserved snapshot
-        if: inputs.preserve_data
+        if: ${{ !inputs.fresh_data }}
         env:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         run: |
@@ -318,7 +334,7 @@ jobs:
                       "Name=status,Values=completed" \
             --query 'reverse(sort_by(Snapshots,&StartTime))[0].SnapshotId' --output text)"
           if [[ ! "${snapshot}" =~ ^snap-[0-9a-f]+$ ]]; then
-            echo 'no preserved snapshot yet: this run starts blank and preserves its volume at teardown'
+            echo 'no preserved snapshot exists: this run starts from a blank data volume'
             exit 0
           fi
           # The declaration names exactly one data volume, whose snapshot_id is null by design;

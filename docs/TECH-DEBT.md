@@ -84,7 +84,9 @@
   machine — every run, and every OS-drive replacement — needs a fresh code, and a run without
   one goes red at registration, by name.
 - **Decision (2026-09-30):** keep the ephemeral lifecycle; the owner supplies a fresh code per
-  registering run. `preserve_data` carries everything else between runs.
+  registering run. Everything else carries between runs on the preserved data disk, which every
+  run adopts when one exists. No backup of the registration's own records can carry it: run
+  36779428440 restored all of them onto a new instance, which still reported unregistered.
 - **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), so
   that ordinary runs and OS-drive replacements stop consuming codes, and an `os_swap` run passes
   end to end.

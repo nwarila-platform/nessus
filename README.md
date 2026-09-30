@@ -59,16 +59,18 @@ flowchart LR
 ## How it runs
 
 The `aws-deploy` workflow owns the lifecycle:
-1. Terraform provisions the host.
+1. Terraform provisions the host and its data volume, from the newest preserved snapshot when
+   there is one.
 2. The composed [`nessus-aws.yml`](ansible/playbooks/nessus-aws.yml) play converges it.
 3. An **idempotency gate** proves a second converge reports `changed=0`.
 4. Terraform destroys the host.
 
 A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
-it recurs. `workflow_dispatch` adds five inputs:
+it recurs. `workflow_dispatch` adds six inputs:
 - `hold_minutes` keeps the scanner up for interactive work;
 - `os_swap` replaces the OS drive and proves the scanner resumes on its data volume (below);
-- `preserve_data` carries the scanner's data from one run to the next (below);
+- `preserve_data` preserves this run's data disk for the runs after it (below);
+- `fresh_data` ignores preserved disks and proves the from-scratch install;
 - `absent_proof` proves `state=absent` removes it idempotently;
 - `skip_products` builds the host alone.
 
@@ -105,20 +107,21 @@ Essentials, an OS-drive replacement therefore needs a fresh activation code (TD-
 
 ## Data preservation
 
-Every run is ephemeral by default: the data volume is created blank and destroyed with the host.
-A `preserve_data` dispatch changes both ends of that:
-- **Start.** The data volume is created from the newest completed snapshot tagged `Preserve=true`
-  for this repository, so the converge adopts a volume that already holds the scanner's
-  settings, certificate, account, plugins and scan results.
-- **Teardown.** The instance is stopped, which shuts Nessus down and unmounts the volume cleanly.
-  The volume is then snapshotted with the same tags before it is destroyed.
+A preserved data disk is **always used when one is available**. Every run creates its data volume
+from the newest completed snapshot tagged `Preserve=true` for this repository, when one exists. The
+converge then adopts a volume that already holds the scanner's settings, certificate, account,
+plugins and scan results. With no preserved snapshot, or when a `fresh_data` dispatch asks for the
+from-scratch proof, the run starts blank.
 
-The two newest preserved snapshots are kept. The runner can delete only snapshots carrying those
-tags.
+Whether a run's own disk is preserved is the `preserve_data` flag's decision. At teardown the
+instance is stopped, which shuts Nessus down and unmounts the volume cleanly. The volume is then
+snapshotted with the `Preserve=true` tag before it is destroyed. The two newest preserved snapshots
+are kept, and the runner can delete only snapshots carrying those tags.
 
-What carries over is everything Nessus stores: settings, the imported certificate, the account,
-plugins and scan results. What does not carry over is the registration, which Tenable binds to
-the machine; a new instance registers again (measured 2026-09-30).
+What carries over is everything Nessus stores. What does not is the registration: Tenable binds it
+to the machine, so a preserved scanner on a new instance registers again (measured 2026-09-30).
+Tenable documents an activation code as "a one-time code", and names Nessus Professional and
+Expert as the editions whose code can be used on multiple systems; see TD-007.
 
 ## What must exist before a deploy
 
