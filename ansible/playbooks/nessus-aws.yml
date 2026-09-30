@@ -103,6 +103,9 @@
               label: 'NESSUS'
               fstype: 'xfs'
               opts: 'defaults,nodev,nosuid'
+              # The vendor's package declares /opt/nessus drwxrwxr-x and sets it on install; a
+              # different mode here would flip it back on every converge (measured 2026-09-30).
+              mode: '0775'
 
   #endregion --- [ Roles ] -------------------------------------------------------------------- #
 

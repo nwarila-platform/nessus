@@ -65,11 +65,13 @@
 
     #region ------ [ Process: 00 Label The Install Root ] ----------------------------------- #
     # The install root is normally its own data volume, mounted by linux_disk_manager so the
-    # scanner's data outlives the OS disk. A filesystem made for it carries no SELinux labels,
-    # and the mount point then shows that filesystem's unlabelled root rather than the label
-    # policy expects there. restorecon applies policy's labels and prints only what it changed,
-    # so a volume already labelled -- every converge after the first, and a volume re-attached
-    # to a replacement OS -- reports no change.
+    # scanner's data outlives the OS disk. A filesystem made for it carries no SELinux labels, so
+    # the mount point shows that filesystem's unlabelled root rather than the label policy
+    # expects there. restorecon labels THAT DIRECTORY, not the tree: the package labels its own
+    # files as it installs them, and Nessus renames files it downloads across directories whose
+    # policy labels differ, so a recursive relabel finds drift after every plugin update and
+    # never settles (measured 2026-09-30: the second converge relabelled again). Nessus runs
+    # unconfined, so those labels change nothing it can reach.
 
     - name: 'BEGIN | Read Whether SELinux Is Enabled'
       changed_when: false
@@ -94,7 +96,7 @@
         - __nessus_scanner_root__.stat.exists
 
       ansible.builtin.command:
-        argv: [ 'restorecon', '-R', '-v', "{{ nessus_scanner_running.install_root }}" ]
+        argv: [ 'restorecon', '-v', "{{ nessus_scanner_running.install_root }}" ]
 
     #endregion --- [ Process: 00 Label The Install Root ] ----------------------------------- #
 
