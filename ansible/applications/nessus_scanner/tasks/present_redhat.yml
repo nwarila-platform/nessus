@@ -4,12 +4,13 @@
 #
 # Converges a RHEL 8 host into a registered, HTTPS-serving Nessus scanner, then proves it.
 #
-#   01 trust the vendor signing key       06 import the declared HTTPS certificate
-#   02 install the pinned, verified RPM   07 register and fetch the plugins
-#   03 start the service                  08 wait until the scanner reports ready -- over HTTPS
-#   04 assert the declared settings          validated against the declared CA and hostname
-#   05 admit the listener in firewalld    09 the one administrator account, proven by signing in
-#                                         10 verify the whole result against the machine
+#   00 label the install root (its own data volume)   06 import the declared HTTPS certificate
+#   01 trust the vendor signing key                   07 the one administrator account
+#   02 install the pinned, verified RPM               08 register and fetch the plugins
+#   03 start the service                              09 wait until ready -- over HTTPS validated
+#   04 assert the declared settings                      against the declared CA and hostname
+#   05 admit the listener in firewalld                10 prove the account by signing in
+#                                                     11 verify the whole result against the machine
 #
 # A converged host changes nothing: every step reads first and writes only on difference.
 #
@@ -61,6 +62,41 @@
         suffix: ''
 
     #endregion --- [ Begin: Create The Controller Staging Directory ] ----------------------- #
+
+    #region ------ [ Process: 00 Label The Install Root ] ----------------------------------- #
+    # The install root is normally its own data volume, mounted by linux_disk_manager so the
+    # scanner's data outlives the OS disk. A filesystem made for it carries no SELinux labels,
+    # and the mount point then shows that filesystem's unlabelled root rather than the label
+    # policy expects there. restorecon applies policy's labels and prints only what it changed,
+    # so a volume already labelled -- every converge after the first, and a volume re-attached
+    # to a replacement OS -- reports no change.
+
+    - name: 'BEGIN | Read Whether SELinux Is Enabled'
+      changed_when: false
+      failed_when: false
+      register: '__nessus_scanner_selinux__'
+
+      ansible.builtin.command:
+        argv: [ 'selinuxenabled' ]
+
+    - name: 'BEGIN | Read Whether The Install Root Exists'
+      register: '__nessus_scanner_root__'
+
+      ansible.builtin.stat:
+        get_checksum: false
+        path: "{{ nessus_scanner_running.install_root }}"
+
+    - name: 'PROCESS | Apply The SELinux Labels Under The Install Root'
+      changed_when: __nessus_scanner_relabel__.stdout | length > 0
+      register: '__nessus_scanner_relabel__'
+      when:
+        - __nessus_scanner_selinux__.rc == 0
+        - __nessus_scanner_root__.stat.exists
+
+      ansible.builtin.command:
+        argv: [ 'restorecon', '-R', '-v', "{{ nessus_scanner_running.install_root }}" ]
+
+    #endregion --- [ Process: 00 Label The Install Root ] ----------------------------------- #
 
     #region ------ [ Process: 01 Trust The Vendor Signing Key ] ----------------------------- #
     # RPM records an imported key as gpg-pubkey-<last 8 hex of the fingerprint>; asking for that
@@ -530,12 +566,76 @@
 
     #endregion --- [ Process: 06 Import The Declared HTTPS Certificate ] --------------------- #
 
-    # A settings change or a new certificate takes effect only when the service restarts; the
-    # handler runs once however many of them changed, and never when none did.
+    #region ------ [ Process: 07 The One Administrator Account ] ---------------------------- #
+    # Created BEFORE registration, from the command line, which needs neither the service nor
+    # the API. The web tier reads whether setup is complete when the service starts, so the start
+    # that follows registration must find the account already there (measured 2026-09-30: an
+    # account added after that start left /server/status at 'register' until the next restart).
+    #
+    # The product's command line is interactive: it reads each answer as a line on stdin. Every
+    # write is judged by its words as well as its status: the words are the only statement of
+    # which of its several refusals it made.
+
+    - name: 'BEGIN | Read The Accounts Nessus Holds'
+      changed_when: false
+      register: '__nessus_scanner_accounts__'
+
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'lsuser' ]
+
+    - name: 'BEGIN | Record The Accounts'
+      ansible.builtin.set_fact:
+        __nessus_scanner_account_names__: >-
+          {{ __nessus_scanner_accounts__.stdout_lines | map('trim') | reject('equalto', '') | list }}
+        cacheable: false
+
+    - name: 'VERIFY | Refuse An Account The Playbook Did Not Declare'
+      ansible.builtin.assert:
+        that: >-
+          __nessus_scanner_account_names__
+          | reject('equalto', nessus_scanner_running.administrator.username) | list | length == 0
+        fail_msg: >-
+          Nessus holds {{ __nessus_scanner_account_names__ | join(', ') }}, but the playbook
+          declares only '{{ nessus_scanner_running.administrator.username }}'. Professional and
+          Essentials hold one account; remove the other with 'nessuscli rmuser' or declare it.
+        quiet: true
+
+    - name: 'PROCESS | Create The Administrator'
+      changed_when: true
+      no_log: true
+      notify: 'nessus-restart-required'
+      register: '__nessus_scanner_created__'
+      when: nessus_scanner_running.administrator.username not in __nessus_scanner_account_names__
+
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'adduser', "{{ nessus_scanner_running.administrator.username }}" ]
+        # One answer per line: the password, the password again, system administrator: yes, no
+        # rules (the blank line), confirm. A literal block, because backslash escapes inside a
+        # template are NOT unescaped by ansible-core 2.21 (measured 2026-09-30).
+        stdin: |-
+          {{ nessus_scanner_running.administrator.password | string | trim }}
+          {{ nessus_scanner_running.administrator.password | string | trim }}
+          y
+
+          y
+        stdin_add_newline: true
+
+    - name: 'VERIFY | Require The Administrator To Be Created'
+      when: __nessus_scanner_created__ is not skipped
+      ansible.builtin.assert:
+        that: __nessus_scanner_created__.stdout | default('') is search('User added')
+        fail_msg: >-
+          nessuscli adduser did not report 'User added' (rc={{ __nessus_scanner_created__.rc | default('?') }}).
+        quiet: true
+
+    #endregion --- [ Process: 07 The One Administrator Account ] ---------------------------- #
+
+    # A settings change, a new certificate or a new account takes effect only when the service
+    # restarts; the handler runs once however many of them changed, and never when none did.
     - name: 'PROCESS | Apply Pending Restarts Before Registration'
       ansible.builtin.meta: 'flush_handlers'
 
-    #region ------ [ Process: 07 Register And Fetch The Plugins ] --------------------------- #
+    #region ------ [ Process: 08 Register And Fetch The Plugins ] --------------------------- #
     # 'fetch --check' answers 0 only for a registered installation. Registration runs with the
     # service stopped, as the vendor documents, and downloads the full plugin set before it
     # returns -- minutes, bounded by the task timeout rather than async (see the header). The
@@ -612,22 +712,34 @@
             name: "{{ nessus_scanner_running.service_name }}"
             state: 'started'
 
-    #endregion --- [ Process: 07 Register And Fetch The Plugins ] --------------------------- #
+    #endregion --- [ Process: 08 Register And Fetch The Plugins ] --------------------------- #
 
-    #region ------ [ Process: 08 Wait Until Ready, Over Validated HTTPS ] ------------------- #
+    #region ------ [ Process: 09 Wait Until Ready, Over Validated HTTPS ] ------------------- #
     # This wait is also the HTTPS proof. It trusts ONLY the CA decoded from the declared bundle,
     # validates the chain and the hostname, and connects by the name 'localhost' the certificate
     # must carry -- so it cannot pass against a self-generated certificate, a different CA, or a
     # name mismatch. /server/status answers 503 while plugins compile and 200 once ready; a
     # refused connection while the service starts is just another attempt.
 
-    - name: 'BEGIN | Wait Until Nessus Reports Ready'
+    # It first waits for Nessus to SETTLE: 'ready', or 'register' with its engine and feed both
+    # ready -- the state it reports when nothing more is coming. A registered scanner that settles
+    # on 'register' is holding a stale setup state; it is restarted once, and then only 'ready'
+    # passes (measured 2026-09-30 on 10.12.4: licence, plugins and engine all ready, status
+    # 'register' for 55 minutes; one restart, 'ready' 95 seconds later).
+
+    - name: 'BEGIN | Wait Until Nessus Settles'
       changed_when: false
       delay: "{{ nessus_scanner_running.timeouts.ready_pause_seconds | int }}"
       failed_when: false
       register: '__nessus_scanner_status__'
       retries: "{{ nessus_scanner_running.timeouts.ready_attempts | int }}"
-      until: (__nessus_scanner_status__.json | default({})).status | default('') == 'ready'
+      until: >-
+        (__nessus_scanner_status__.json | default({})).status | default('') == 'ready'
+        or ((__nessus_scanner_status__.json | default({})).status | default('') == 'register'
+            and (((__nessus_scanner_status__.json | default({})).detailed_status | default({})).engine_status
+                 | default({})).status | default('') == 'ready'
+            and (((__nessus_scanner_status__.json | default({})).detailed_status | default({})).feed_status
+                 | default({})).status | default('') == 'ready')
 
       ansible.builtin.uri:
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
@@ -637,75 +749,66 @@
         url: "{{ __nessus_scanner_base_url__ }}/server/status"
         validate_certs: true
 
+    - name: 'BEGIN | Read Whether The Settled Scanner Is Registered'
+      changed_when: false
+      failed_when: false
+      register: '__nessus_scanner_settled_registration__'
+      when: (__nessus_scanner_status__.json | default({})).status | default('') == 'register'
+
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fetch', '--check' ]
+
+    - name: 'PROCESS | Restart Once To Clear A Stale Setup State'
+      register: '__nessus_scanner_unstuck__'
+      when:
+        - (__nessus_scanner_status__.json | default({})).status | default('') == 'register'
+        - __nessus_scanner_settled_registration__.rc | default(1) == 0
+
+      ansible.builtin.systemd_service:
+        name: "{{ nessus_scanner_running.service_name }}"
+        state: 'restarted'
+
+    - name: 'BEGIN | Wait Until Nessus Reports Ready After The Restart'
+      changed_when: false
+      delay: "{{ nessus_scanner_running.timeouts.ready_pause_seconds | int }}"
+      failed_when: false
+      register: '__nessus_scanner_status_after__'
+      retries: "{{ nessus_scanner_running.timeouts.ready_attempts | int }}"
+      until: (__nessus_scanner_status_after__.json | default({})).status | default('') == 'ready'
+      when: __nessus_scanner_unstuck__ is not skipped
+
+      ansible.builtin.uri:
+        ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        return_content: true
+        status_code: [ 200, 503 ]
+        timeout: 30
+        url: "{{ __nessus_scanner_base_url__ }}/server/status"
+        validate_certs: true
+
+    - name: 'BEGIN | Record The Final Status'
+      ansible.builtin.set_fact:
+        __nessus_scanner_status_final__: >-
+          {{ __nessus_scanner_status_after__
+             if (__nessus_scanner_status_after__ is not skipped) else __nessus_scanner_status__ }}
+        cacheable: false
+
     - name: 'VERIFY | Require Nessus Ready Over Validated HTTPS'
       ansible.builtin.assert:
         that:
-          - __nessus_scanner_status__.status | default(0) == 200
-          - (__nessus_scanner_status__.json | default({})).status | default('') == 'ready'
+          - __nessus_scanner_status_final__.status | default(0) == 200
+          - (__nessus_scanner_status_final__.json | default({})).status | default('') == 'ready'
         fail_msg: >-
-          Nessus did not report ready over HTTPS validated against the declared CA within
-          {{ nessus_scanner_running.timeouts.ready_attempts }} attempts. Last answer:
-          {{ __nessus_scanner_status__.msg | default('') }}
-          {{ (__nessus_scanner_status__.json | default({})) | to_json }}
+          Nessus did not report ready over HTTPS validated against the declared CA. Last answer:
+          {{ __nessus_scanner_status_final__.msg | default('') }}
+          {{ (__nessus_scanner_status_final__.json | default({})) | to_json }}
         quiet: true
 
-    #endregion --- [ Process: 08 Wait Until Ready, Over Validated HTTPS ] ------------------- #
+    #endregion --- [ Process: 09 Wait Until Ready, Over Validated HTTPS ] ------------------- #
 
-    #region ------ [ Process: 09 The One Administrator Account ] ---------------------------- #
-    # The product's command line is interactive: it reads each answer as a line on stdin. Every
-    # write is judged by its words as well as its status: the words are the only statement of
-    # which of its several refusals it made.
-
-    - name: 'BEGIN | Read The Accounts Nessus Holds'
-      changed_when: false
-      register: '__nessus_scanner_accounts__'
-
-      ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'lsuser' ]
-
-    - name: 'BEGIN | Record The Accounts'
-      ansible.builtin.set_fact:
-        __nessus_scanner_account_names__: >-
-          {{ __nessus_scanner_accounts__.stdout_lines | map('trim') | reject('equalto', '') | list }}
-        cacheable: false
-
-    - name: 'VERIFY | Refuse An Account The Playbook Did Not Declare'
-      ansible.builtin.assert:
-        that: >-
-          __nessus_scanner_account_names__
-          | reject('equalto', nessus_scanner_running.administrator.username) | list | length == 0
-        fail_msg: >-
-          Nessus holds {{ __nessus_scanner_account_names__ | join(', ') }}, but the playbook
-          declares only '{{ nessus_scanner_running.administrator.username }}'. Professional and
-          Essentials hold one account; remove the other with 'nessuscli rmuser' or declare it.
-        quiet: true
-
-    - name: 'PROCESS | Create The Administrator'
-      changed_when: true
-      no_log: true
-      register: '__nessus_scanner_created__'
-      when: nessus_scanner_running.administrator.username not in __nessus_scanner_account_names__
-
-      ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'adduser', "{{ nessus_scanner_running.administrator.username }}" ]
-        # One answer per line: the password, the password again, system administrator: yes, no
-        # rules (the blank line), confirm. A literal block, because backslash escapes inside a
-        # template are NOT unescaped by ansible-core 2.21 (measured 2026-09-30).
-        stdin: |-
-          {{ nessus_scanner_running.administrator.password | string | trim }}
-          {{ nessus_scanner_running.administrator.password | string | trim }}
-          y
-
-          y
-        stdin_add_newline: true
-
-    - name: 'VERIFY | Require The Administrator To Be Created'
-      when: __nessus_scanner_created__ is not skipped
-      ansible.builtin.assert:
-        that: __nessus_scanner_created__.stdout | default('') is search('User added')
-        fail_msg: >-
-          nessuscli adduser did not report 'User added' (rc={{ __nessus_scanner_created__.rc | default('?') }}).
-        quiet: true
+    #region ------ [ Process: 10 Prove The Account Over Validated HTTPS ] ------------------- #
+    # The account exists (region 07); signing in proves the declared password opens it, over the
+    # same CA- and hostname-validated HTTPS. A refused sign-in means the declared password moved,
+    # and the account is converged to it.
 
     - name: 'BEGIN | Sign In As The Administrator'
       changed_when: false
@@ -725,8 +828,6 @@
         url: "{{ __nessus_scanner_base_url__ }}/session"
         validate_certs: true
 
-    # A refused sign-in on an account that exists means the declared password moved; the
-    # account is converged to it, and the sign-in repeated below proves it.
     - name: 'PROCESS | Reset The Administrator Password'
       changed_when: true
       no_log: true
@@ -801,9 +902,9 @@
         url: "{{ __nessus_scanner_base_url__ }}/session"
         validate_certs: true
 
-    #endregion --- [ Process: 09 The One Administrator Account ] ---------------------------- #
+    #endregion --- [ Process: 10 Prove The Account Over Validated HTTPS ] ------------------- #
 
-    #region ------ [ Verify: 10 The Whole Result, Read Back From The Machine ] --------------- #
+    #region ------ [ Verify: 11 The Whole Result, Read Back From The Machine ] --------------- #
 
     - name: 'VERIFY | Read The Installed Version'
       changed_when: false
@@ -860,7 +961,7 @@
           {{ __nessus_scanner_certificate__['declared-fingerprint'].stdout | trim }}).
         quiet: true
 
-    #endregion --- [ Verify: 10 The Whole Result, Read Back From The Machine ] --------------- #
+    #endregion --- [ Verify: 11 The Whole Result, Read Back From The Machine ] --------------- #
 
   always:
     - name: 'CLEANUP | Remove The Controller Staging Directory'

@@ -11,13 +11,36 @@ registered scanner serving HTTPS with a certificate the deployment owns. In one 
 4. admits the listener in every active firewalld zone;
 5. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
    certificate and CA as a set, and imports them into Nessus when what it serves differs;
-6. registers the scanner with its activation code and fetches the plugins;
-7. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**;
-8. converges the one administrator account and proves it by signing in to the API;
-9. verifies the result against the machine: the installed version, the service, the
-   registration, and the fingerprint of the certificate the listener actually serves.
+6. creates the one administrator account from the command line, **before** registration, because
+   the web tier reads whether setup is complete when the service starts;
+7. registers the scanner with its activation code and fetches the plugins;
+8. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**,
+   restarting once if a registered scanner settles on a stale `register` state (measured
+   2026-09-30);
+9. proves the account by signing in to the API, converging its password if it moved;
+10. verifies the result against the machine: the installed version, the service, the
+    registration, and the fingerprint of the certificate the listener actually serves.
 
 Every step reads before it writes, so a converged host reports no change.
+
+## Data volume
+
+The role treats its install root, `/opt/nessus`, as the unit of the scanner's data: binaries,
+plugins, settings, certificates, accounts and scan results. In the composed play it is its own
+volume, mounted there by `linux_disk_manager` before this role runs, so the OS disk can be
+replaced underneath it. On a replacement OS the role:
+- reinstalls the package over the preserved tree;
+- finds the settings, certificate and account already in place, and writes none of them;
+- re-registers only if the registration did not survive the new machine.
+
+An OS-swap rehearsal on RHEL 8.10 on 2026-09-30 moved the volume to a machine with a different
+hostname and machine-id. The installation UUID, the account and its password, the settings and
+the served certificate all carried over. The only changes were the package, the signing key and
+the service, which live on the OS disk.
+
+`restorecon` labels the install root on every converge and changes only what policy disagrees
+with, because a filesystem made for it starts unlabelled. `state=absent` empties the install root
+rather than removing it, because the mount point is the disk role's.
 
 ## HTTPS
 

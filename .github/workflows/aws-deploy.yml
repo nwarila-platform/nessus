@@ -22,6 +22,9 @@
 #     credentials. The 330-minute job budget stays below the runner's 360-minute execution limit.
 #     It is not a teardown guarantee: abnormal delay can exhaust the budget before destroy and
 #     strand paid resources, which aws-reaper.yml exists to clean up.
+#   * The scanner's whole install root is a standalone data volume, so the OS disk is
+#     replaceable: os_swap bumps refresh_serial, re-converges onto the re-attached volume, and
+#     proves Nessus reads back a record written into its database before the replacement.
 #   * One fixed state key; this workflow's concurrency group prevents overlapping applies and
 #     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply,
 #     and aws-reaper.yml destroys what a run killed before destroy leaves behind.
@@ -39,6 +42,10 @@ name: AWS Deploy
         type: choice
         options: [ '0', '15', '60', '120', '240' ]
         default: '0'
+      os_swap:
+        description: After converge, replace the OS drive and prove the scanner resumes on its data volume
+        type: boolean
+        default: false
       absent_proof:
         description: After converge, prove state=absent removes the scanner idempotently
         type: boolean
@@ -469,6 +476,147 @@ jobs:
             exit 1
           fi
           echo "second converge: every scanner reported changed=0"
+
+      # OS-DRIVE REPLACEMENT proof (opt-in). Bumping refresh_serial replaces the OS instance in
+      # place while the STANDALONE data volume detaches and re-attaches to the replacement; the
+      # scanner must then resume on its existing install root. Before the replacement a record is
+      # written into Nessus's own database, and after it the record must read back: it exists only
+      # in the database on the data volume, so reading it back proves the volume moved AND that
+      # Nessus opened its existing database rather than starting a new one. A second post-swap
+      # converge must then report no change -- the same idempotency proof, on a rebuilt host.
+      - name: Refresh AWS credentials for the OS replacement (OIDC)
+        if: inputs.os_swap
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          role-session-name: aws-deploy-${{ github.run_id }}-os-swap
+          role-duration-seconds: 3600
+
+      - name: Write a record into the scanner's database before the OS is replaced
+        if: inputs.os_swap
+        timeout-minutes: 15
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --tags nessus_data_proof                                              \
+            --extra-vars nessus_data_proof=mark                                   \
+            --extra-vars nessus_data_proof_marker="${GITHUB_RUN_ID}"              \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars env=test                                                 \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"
+
+      - name: Replace the OS drive, keeping the data volume (refresh_serial bump)
+        if: inputs.os_swap
+        timeout-minutes: 15
+        working-directory: .frameworks/aws-terraform-framework/terraform
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          terraform apply -input=false -auto-approve -lock-timeout=120s      \
+            -var-file="${GITHUB_WORKSPACE}/terraform/aws.tfvars"             \
+            -var "commit_sha=$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)" \
+            -var "environment=test"                                          \
+            -var "refresh_serial=1"                                          \
+            -var "repository=${GITHUB_REPOSITORY}"                           \
+            -var "repository_id=${GITHUB_REPOSITORY_ID}"                     \
+            -var "run_id=${GITHUB_RUN_ID}"                                   \
+            -var "runner_ip=${RUNNER_IP}"                                    \
+            ${DEBUG_IP:+-var "debug_ip=${DEBUG_IP}"}
+
+      # The OS is new, so this is a first converge again: the disk role adopts the labelled volume
+      # without formatting it, and the scanner role reinstalls the package over the preserved
+      # install root. If Tenable ties the registration to the machine, it registers again here.
+      - name: Re-converge onto the re-attached data volume
+        if: inputs.os_swap
+        timeout-minutes: 90
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars env=test                                                 \
+            --extra-vars state=present                                            \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"
+
+      - name: Refresh AWS credentials after the re-converge (OIDC)
+        if: inputs.os_swap
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          role-session-name: aws-deploy-${{ github.run_id }}-os-swap-proofs
+          role-duration-seconds: 3600
+
+      - name: Prove the scanner resumed on its own data
+        if: inputs.os_swap
+        timeout-minutes: 15
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --tags nessus_data_proof                                              \
+            --extra-vars nessus_data_proof=verify                                 \
+            --extra-vars nessus_data_proof_marker="${GITHUB_RUN_ID}"              \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars env=test                                                 \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"
+
+      - name: Prove the rebuilt host converges without change
+        if: inputs.os_swap
+        timeout-minutes: 30
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          recap="$(ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"       \
+            --extra-vars env=test                                                 \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars state=present 2>&1 | tee /dev/stderr)"
+          hosts="$(printf '%s\n' "${recap}" \
+            | grep -E '^[^ ]+ +: +ok=[0-9]+' | grep -vE '^localhost +:' || true)"
+          if [ -z "${hosts}" ]; then
+            echo "::error::no play recap found -- the converge did not run to a recap" >&2
+            exit 1
+          fi
+          busy="$(printf '%s\n' "${hosts}" | grep -cvE 'changed=0 +unreachable=0 +failed=0\b' || true)"
+          if [ "${busy}" -ne 0 ]; then
+            echo "::error::post-swap converge: ${busy} host(s) changed something or failed" >&2
+            exit 1
+          fi
+          echo "post-swap converge: the rebuilt scanner reported changed=0"
 
       - name: Prove state=absent removes the scanner
         if: inputs.absent_proof

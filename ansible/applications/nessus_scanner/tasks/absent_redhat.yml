@@ -35,10 +35,24 @@
         name: "{{ nessus_scanner_running.package_name }}"
         state: 'absent'
 
-    # The package leaves its data behind by design; absent means none of it remains.
+    # The package leaves its data behind by design; absent means none of it remains. The install
+    # root itself is normally the MOUNT POINT of the scanner's data volume, which linux_disk_manager
+    # owns: removing that directory would fail while mounted and is not this role's to remove.
+    # Everything beneath it is the product's, so everything beneath it goes.
+    - name: 'BEGIN | Find Everything Under The Install Root'
+      register: '__nessus_scanner_remains__'
+
+      ansible.builtin.find:
+        file_type: 'any'
+        hidden: true
+        paths: [ "{{ nessus_scanner_running.install_root }}" ]
+        recurse: false
+
     - name: 'PROCESS | Remove Everything Under The Install Root'
+      loop: "{{ __nessus_scanner_remains__.files | map(attribute='path') | list }}"
+
       ansible.builtin.file:
-        path: "{{ nessus_scanner_running.install_root }}"
+        path: "{{ item }}"
         state: 'absent'
 
     #endregion --- [ Process: Stop And Remove The Product ] --------------------------------- #
@@ -117,21 +131,24 @@
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
 
-    - name: 'VERIFY | Read Whether The Install Root Remains'
+    - name: 'VERIFY | Read What Remains Under The Install Root'
       register: '__nessus_scanner_root_after__'
 
-      ansible.builtin.stat:
-        get_checksum: false
-        path: "{{ nessus_scanner_running.install_root }}"
+      ansible.builtin.find:
+        file_type: 'any'
+        hidden: true
+        paths: [ "{{ nessus_scanner_running.install_root }}" ]
+        recurse: false
 
     - name: 'VERIFY | Require Nothing Of The Scanner To Remain'
       ansible.builtin.assert:
         that:
           - __nessus_scanner_package_after__.rc != 0
-          - not __nessus_scanner_root_after__.stat.exists
+          - __nessus_scanner_root_after__.matched == 0
         fail_msg: >-
           The scanner is not absent: package query rc={{ __nessus_scanner_package_after__.rc }},
-          install root present={{ __nessus_scanner_root_after__.stat.exists }}.
+          entries left under the install root:
+          {{ __nessus_scanner_root_after__.files | map(attribute='path') | list }}.
         quiet: true
 
     #endregion --- [ Verify: Nothing Remains ] ---------------------------------------------- #

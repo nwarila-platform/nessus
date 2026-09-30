@@ -53,9 +53,13 @@ all_systems = [
     # enforcing, and noexec /tmp, /var/tmp and /home are all in force on it; the nessus_scanner
     # role is written against each.
     ami = "ami-0ca8a2e788e4c5869"
-    # No standalone data volumes yet, so the OS instance is not swap-eligible; a future
-    # persistent deployment gives /opt/nessus a volume of its own and flips this to true.
-    refresh = false
+    # OS-DRIVE REPLACEMENT (immutable-OS pattern). refresh=true makes this host's OS instance
+    # swap-eligible: bumping the framework's refresh_serial variable (0 -> 1 -> ...) replaces the
+    # OS instance in place while the standalone data volume below detaches and re-attaches to the
+    # replacement, so /opt/nessus -- plugins, settings, certificates, users, scan data -- survives
+    # an OS rebuild and the scanner resumes on it. It is a no-op until refresh_serial actually
+    # changes, so the ephemeral apply -> converge -> destroy path is unaffected.
+    refresh = true
     # Nessus compiles its full plugin set on first start; Tenable's floor is 4 GiB of memory with
     # 8 GiB recommended, and the compile is the long pole of a converge. t3.large is 2 vCPUs and
     # 8 GiB.
@@ -76,15 +80,16 @@ all_systems = [
       Backup   = false
     }
 
-    # The image's root is 15 GiB; 50 gives the plugin set room on the filesystem that holds
-    # /opt. The role measures the space before registration rather than assuming it.
+    # The image's root is 15 GiB. The scanner's data lives on its own volume below, so the
+    # replaceable OS disk only needs room for the OS, the bootstrap's Python and its updates;
+    # padding it further is pure cost.
     root_block_device = {
       delete_on_termination = true
       iops                  = null
       tags                  = {}
       throughput            = null
       volume_type           = "gp3"
-      volume_size           = "50"
+      volume_size           = "20"
     }
 
     # The CIS RHEL 8 AMI ships TWO devices: /dev/sda1 (root, handled by root_block_device, which
@@ -103,7 +108,32 @@ all_systems = [
       }
     ]
 
-    ebs_block_devices = []
+    # ONE raw data disk for the scanner's whole install root. The deploy layer owns the hardware;
+    # the composed play's linux_disk_manager partitions, formats and mounts it at /opt/nessus, and
+    # adopts it unformatted when it arrives already labelled -- which is what an OS replacement
+    # hands it. The Function tag is the identity the disk role resolves the volume by, because a
+    # volume id only exists after apply; it must be unique and must match the play. It is a
+    # STANDALONE volume whose lifecycle is independent of the OS instance, so an OS replacement
+    # (refresh above) detaches and re-attaches the SAME volume instead of recreating it.
+    # skip_destroy=false tears it down with the ephemeral bed; a persistent deployment sets
+    # skip_destroy=true so the data survives a full `terraform destroy` too.
+    #
+    # Sized for the compiled plugin set, which is the bulk of it, plus scan results; the role
+    # refuses to register with less than its minimum free. device_index 0 renders /dev/sdd,
+    # clear of the image's own /dev/sdf override above.
+    ebs_block_devices = [
+      {
+        resource_key = "nessusdata"
+        device_index = 0
+        iops         = null
+        snapshot_id  = null
+        skip_destroy = false
+        tags         = { Function = "NESSUS" }
+        throughput   = null
+        volume_type  = "gp3"
+        volume_size  = "60"
+      }
+    ]
 
     network_interfaces = [
       {

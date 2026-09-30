@@ -32,6 +32,9 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   this repository mints. The role decodes it with the host's FIPS-validated OpenSSL, checks it as a
   set, and imports it. The readiness wait then trusts *only* the declared CA and connects by the
   name the certificate carries, and the served leaf's fingerprint must equal the declared one.
+- **Data that outlives the OS.** The scanner's whole install root — plugins, settings,
+  certificates, accounts, scan data — is a standalone data volume. The OS disk is replaceable, and
+  the pipeline proves the scanner resumes on its own database afterwards.
 - **Written for a hardened host.** FIPS mode, fapolicyd, `noexec` temporary directories, enforced
   local-package signature checks and firewalld are all live on the target, and every step is
   shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
@@ -62,8 +65,9 @@ The `aws-deploy` workflow owns the lifecycle:
 4. Terraform destroys the host.
 
 A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
-it recurs. `workflow_dispatch` adds three inputs:
+it recurs. `workflow_dispatch` adds four inputs:
 - `hold_minutes` keeps the scanner up for interactive work;
+- `os_swap` replaces the OS drive and proves the scanner resumes on its data volume (below);
 - `absent_proof` proves `state=absent` removes it idempotently;
 - `skip_products` builds the host alone.
 
@@ -76,6 +80,24 @@ ssh -L 8834:localhost:8834 ec2-user@<public IPv4>
 
 Locally, `scripts/compose-and-run.sh` builds the same composed tree and runs the play, and
 `scripts/converge-held-bed.sh` converges a bed a workflow run is holding.
+
+## OS-drive replacement
+
+`/opt/nessus` is a standalone EBS volume, tagged `Function=NESSUS`, and independent of the OS disk.
+Tenable's supported way to move a scanner's data is to move `/opt/nessus` whole, so that is the
+unit. The framework's `linux_disk_manager` resolves the volume by that tag, never by device name.
+It partitions, formats and mounts a blank volume, and adopts an already-labelled one without
+reformatting it.
+
+Bumping the framework's `refresh_serial`, or dispatching `aws-deploy` with `os_swap=true`,
+**replaces the OS instance in place while the same data volume detaches and re-attaches**. The
+converge then:
+- reinstalls the package over the preserved install root;
+- keeps the settings, certificate and accounts it finds there;
+- registers again only if Tenable's registration did not survive the new machine.
+
+The opt-in proof writes a record into Nessus's database before the replacement and requires it to
+read back afterwards. It then runs the same `changed=0` gate on the rebuilt host.
 
 ## What must exist before a deploy
 

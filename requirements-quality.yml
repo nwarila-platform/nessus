@@ -10,3 +10,10 @@ collections:
   # The framework's domain_member role performs its Windows join through microsoft.ad.
   - name: microsoft.ad
     version: '1.12.0'
+  # The framework's linux_disk_manager partitions and formats the data volume through
+  # community.general (parted, filesystem) and mounts it through ansible.posix (mount). Pinned to
+  # the versions the framework's own requirements.yml declares at the pinned commit.
+  - name: community.general
+    version: '7.5.9'
+  - name: ansible.posix
+    version: '1.6.2'
