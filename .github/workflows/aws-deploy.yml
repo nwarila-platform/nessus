@@ -7,25 +7,27 @@
 #
 #   * AWS credentials are issued only to this workflow at refs/heads/main. Pull requests use
 #     the credential-free quality workflow; feature-branch workflow code never reaches AWS.
-#   * Reachability: direct SSH to a subnet-assigned public IPv4. At runtime the framework adds
-#     one run-scoped security group to every interface, sourced from the runner's validated
-#     public IPv4 and, when an operator hostname is configured, from the address it resolves to
-#     as well — that one adding RDP, so a person can work on a held host. This configuration
-#     creates no EIP and has no NAT. The playbook performs the bounded direct-SSH readiness
-#     check because readiness_gate remains disabled.
-#   * AWS credentials are exchanged before provisioning and refreshed before eligible teardown.
-#     The initial 7,800-second session covers normal deployment work; the teardown refresh uses a
-#     modest 3,600-second session so long holds do not reach destroy with expired credentials.
-#     The 330-minute job budget includes a four-hour hold plus measured-path margin and stays below
-#     the runner's 360-minute execution limit. It is not a teardown guarantee: abnormal delay can
-#     exhaust the job budget before destroy and strand paid resources. That risk is accepted for
-#     this temporary proof bed.
+#   * The host is the CIS RHEL 8 STIG image. The play resolves its image account, bootstraps
+#     Python, then installs, registers and certifies Nessus, and proves HTTPS against the declared
+#     CA and hostname on the host itself.
+#   * Reachability: direct SSH to a subnet-assigned public IPv4. The framework adds one
+#     run-scoped security group, sourced from the runner's validated public IPv4 and, when an
+#     operator hostname is configured, from the address it resolves to -- so a person can SSH to a
+#     held scanner and tunnel its HTTPS listener. This configuration creates no EIP and has no
+#     NAT. credential_resolver performs the bounded-round connection wait because readiness_gate
+#     remains disabled.
+#   * AWS credentials are exchanged before provisioning, refreshed before the idempotency proof
+#     (a first converge registers and compiles the full plugin set, the long pole of the run), and
+#     refreshed again before eligible teardown so long holds do not reach destroy with expired
+#     credentials. The 330-minute job budget stays below the runner's 360-minute execution limit.
+#     It is not a teardown guarantee: abnormal delay can exhaust the budget before destroy and
+#     strand paid resources, which aws-reaper.yml exists to clean up.
 #   * One fixed state key; this workflow's concurrency group prevents overlapping applies and
-#     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply;
-#     no age-gated reaper exists for a run killed before destroy.
-#   * Protected-main pushes that touch the deploy inputs — terraform, ansible, the framework
-#     pins, this workflow — prove immediately; an off-minute weekly schedule proves recurrence.
-#     One durable incident is updated on failure and closed after the next successful lifecycle.
+#     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply,
+#     and aws-reaper.yml destroys what a run killed before destroy leaves behind.
+#   * Protected-main pushes that touch the deploy inputs — terraform, ansible, scripts, the
+#     framework pins, this workflow — prove immediately; an off-minute weekly schedule proves
+#     recurrence. One durable incident is updated on failure and closed after the next success.
 # =========================================================================================== #
 name: AWS Deploy
 
@@ -37,12 +39,21 @@ name: AWS Deploy
         type: choice
         options: [ '0', '15', '60', '120', '240' ]
         default: '0'
+      absent_proof:
+        description: After converge, prove state=absent removes the scanner idempotently
+        type: boolean
+        default: false
+      skip_products:
+        description: Build the host only - skip Nessus and its idempotency gate
+        type: boolean
+        default: false
   push:
     branches: [ main ]
     paths:
       - 'terraform/**'
       - 'ansible/**'
-      - '.framework-pin'                      # a pin bump changes what is deployed
+      - 'scripts/**'                          # composition and materialization run in the deploy
+      - '.github/ansible-framework-pin'       # a pin bump changes what is deployed
       - '.github/terraform-framework-pin'
       - '.github/workflows/aws-deploy.yml'
   schedule:
@@ -77,8 +88,8 @@ jobs:
     needs: main-ref
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # The 330-minute budget leaves measured-path margin around a 240-minute hold and remains below
-    # the runner's 360-minute execution limit; a timeout can still strand resources before teardown.
+    # The 330-minute budget leaves margin around a 240-minute hold and remains below the runner's
+    # 360-minute execution limit; a timeout can still strand resources before teardown.
     timeout-minutes: 330
     permissions:
       id-token: write
@@ -91,7 +102,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -131,9 +142,9 @@ jobs:
           echo "${runtime_venv}/bin" >> "${GITHUB_PATH}"
 
       # The framework consumes a pre-existing key pair and never creates one, so the standing
-      # account key pair named in terraform/aws.tfvars is the launch key. Windows user_data
-      # installs its public half by reading IMDS; only the private half is secret, and it
-      # exists solely in this runner's temporary directory, mode 0600, for this one job.
+      # account key pair named in terraform/aws.tfvars is the launch key. user_data installs its
+      # public half by reading IMDS; only the private half is secret, and it exists solely in
+      # this runner's temporary directory, mode 0600, for this one job.
       - name: Stage the launch private key
         env:
           SSH_PRIVATE_KEY: ${{ secrets.AWS_EC2_SSH_PRIVATE_KEY }}
@@ -156,8 +167,6 @@ jobs:
           role-session-name: aws-deploy-${{ github.run_id }}
           role-duration-seconds: 7800
 
-      # actions/checkout cannot read a file into ref:, so validated immutable SHAs pass through
-      # step outputs. Reject malformed/multiline pins before any external framework checkout.
       # A rotated secret that no longer matches the launch key pair is invisible until Ansible
       # cannot log in — which surfaces fifteen minutes and one instance later as a readiness
       # timeout. Compare the two public halves here instead, before anything is created.
@@ -176,6 +185,8 @@ jobs:
           fi
           echo "staged key matches ${CI_KEY_NAME}"
 
+      # actions/checkout cannot read a file into ref:, so validated immutable SHAs pass through
+      # step outputs. Reject malformed/multiline pins before any external framework checkout.
       - name: Read framework pins
         id: pins
         run: |
@@ -195,14 +206,13 @@ jobs:
             }
             printf '%s=%s\n' "${name}" "${pin}" >> "${GITHUB_OUTPUT}"
           }
-          # The ansible-framework pin is the single root .framework-pin, read by BOTH this workflow
-          # and scripts/compose-and-run.sh, so local and CI can never diverge. The terraform pin
-          # stays under .github/ because only CI consumes terraform.
+          # Both framework pins live under .github/. The ansible pin is read by this workflow
+          # and by scripts/compose-and-run.sh from one path, so local and CI can never diverge.
           emit_pin terraform .github/terraform-framework-pin
-          emit_pin ansible .framework-pin
+          emit_pin ansible .github/ansible-framework-pin
 
       - name: Checkout aws-terraform-framework (pinned)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: ${{ github.repository_owner }}/aws-terraform-framework
           ref: ${{ steps.pins.outputs.terraform }}
@@ -210,7 +220,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout ansible-framework (pinned)
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: ${{ github.repository_owner }}/ansible-framework
           ref: ${{ steps.pins.outputs.ansible }}
@@ -310,6 +320,8 @@ jobs:
         id: tf-apply
         timeout-minutes: 15
         working-directory: .frameworks/aws-terraform-framework/terraform
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         run: |
           set -euo pipefail
           terraform apply -input=false -auto-approve -lock-timeout=120s      \
@@ -350,14 +362,35 @@ jobs:
             rsync -a --delete "${role_source}/" "${framework_dir}/applications/${role_name}/"
           done
 
-      # Readiness, configuration and the application proof all live in the playbook. The EC2
-      # inventory plugin filters live AWS instances to this repository and run before exposing
-      # one target. The budget guards against a hung converge without cutting a working one short.
-      - name: Run the application playbook
-        timeout-minutes: 60
+      # The inventory supports an ssh-ssm transport; carrying the plugin keeps a transport change
+      # in terraform/aws.tfvars from also needing a workflow change.
+      - name: Install the pinned Session Manager plugin
+        run: |
+          set -euo pipefail
+          . ./quality-tools.env
+          plugin_base='https://s3.amazonaws.com/session-manager-downloads/plugin'
+          plugin_deb="${RUNNER_TEMP}/session-manager-plugin.deb"
+          plugin_path="${SESSION_MANAGER_PLUGIN_VERSION}/ubuntu_64bit/session-manager-plugin.deb"
+          curl --fail --location --silent --show-error \
+            "${plugin_base}/${plugin_path}" --output "${plugin_deb}"
+          printf '%s  %s\n' "${SESSION_MANAGER_PLUGIN_DEB_SHA256}" "${plugin_deb}" \
+            | sha256sum --check --strict
+          sudo dpkg --install "${plugin_deb}"
+
+      # Credential resolution, readiness, bootstrap, and the Nessus install, registration, HTTPS
+      # and proofs are role-composed by the playbook. The EC2 inventory filters live instances to
+      # this repository and workflow run.
+      #
+      # The budget is dominated by the first registration: it downloads the full plugin set and
+      # the first start compiles it before the scanner reports ready. The role bounds that wait
+      # itself; this bounds the whole converge above it, because the failure it guards against is
+      # a hung converge -- and cutting a working one short reports a defect that is not there.
+      - name: Run the Nessus playbook
+        timeout-minutes: 90
         working-directory: .frameworks/ansible-framework
         env:
           ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
           # A secret reaches the shell through the environment, never by substitution into the
           # script text, so its value cannot be read as shell syntax. Forwarded on as an
           # extra-var below because the play requires it; same value the OIDC role ARN uses.
@@ -366,15 +399,126 @@ jobs:
           # run's instance, and a lookup('env') has no command-line equivalent.
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          SKIP_PRODUCTS: ${{ inputs.skip_products }}
         run: |
           set -euo pipefail
+          # Built as an array so an empty selection adds no argument at all, rather than an empty
+          # string ansible-playbook would read as a tag named "".
+          skip=()
+          if [ "${SKIP_PRODUCTS:-false}" = 'true' ]; then
+            skip=(--skip-tags products)
+          fi
           # Dynamic inventory publishes an instance attribute named state; extra-vars take precedence.
           ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
-            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                    \
-            --extra-vars aws_region="${AWS_REGION}"                            \
-            --extra-vars env=test                                              \
-            --extra-vars state=present                                         \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars env=test                                                 \
+            --extra-vars state=present                                            \
+            "${skip[@]}"                                                          \
             --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"
+
+      # The first converge can consume most of the job's first session; the proofs below run on a
+      # fresh one rather than on whatever remains of it.
+      - name: Refresh AWS credentials for the proofs (OIDC)
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/${{ env.DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
+          role-session-name: aws-deploy-${{ github.run_id }}-proofs
+          role-duration-seconds: 3600
+
+      # Idempotency gate: a settled scanner reports NO change on a second converge. Everything the
+      # role writes -- the package, settings, firewall rule, certificate, registration and account
+      # -- is read first and written only on difference, so any change here is drift the role
+      # failed to settle, or a write it cannot judge.
+      - name: Prove a second converge changes nothing
+        if: ${{ !inputs.skip_products }}
+        timeout-minutes: 30
+        working-directory: .frameworks/ansible-framework
+        # The same environment every composed-tree invocation below repeats: dynamic inventory
+        # reads the ids, the plays take the account, and the config points at the composed tree.
+        # Spelled out rather than anchored, because the fleet's pinned actionlint rejects aliases.
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          recap="$(ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"       \
+            --extra-vars env=test                                                 \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars state=present 2>&1 | tee /dev/stderr)"
+          # The controller answers the inventory-contract play and reports changed=0 on its own
+          # recap line; judging it would let it satisfy the rule for a host that changed.
+          hosts="$(printf '%s\n' "${recap}" \
+            | grep -E '^[^ ]+ +: +ok=[0-9]+' | grep -vE '^localhost +:' || true)"
+          if [ -z "${hosts}" ]; then
+            echo "::error::no play recap found -- the converge did not run to a recap" >&2
+            exit 1
+          fi
+          # Counted, not matched with grep -q -v: implementations disagree on the exit status of
+          # an inverted quiet match, and a health gate must not depend on which grep is installed.
+          busy="$(printf '%s\n' "${hosts}" | grep -cvE 'changed=0 +unreachable=0 +failed=0\b' || true)"
+          if [ "${busy}" -ne 0 ]; then
+            echo "::error::second converge: ${busy} host(s) changed something or failed" >&2
+            exit 1
+          fi
+          echo "second converge: every scanner reported changed=0"
+
+      - name: Prove state=absent removes the scanner
+        if: inputs.absent_proof
+        timeout-minutes: 30
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"       \
+            --extra-vars env=test                                                 \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars state=absent
+
+      - name: Prove state=absent is idempotent (second run is a no-op)
+        if: inputs.absent_proof
+        timeout-minutes: 30
+        working-directory: .frameworks/ansible-framework
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/.frameworks/ansible-framework/ansible.cfg
+          ANSIBLE_SSH_AGENT: auto
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          recap="$(ansible-playbook "${GITHUB_WORKSPACE}/ansible/playbooks/nessus-aws.yml" \
+            --inventory "${GITHUB_WORKSPACE}/ansible/inventory/aws_ec2.yml"       \
+            --extra-vars env=test                                                 \
+            --extra-vars aws_account_id="${AWS_ACCOUNT_ID}"                       \
+            --extra-vars aws_region="${AWS_REGION}"                               \
+            --extra-vars state=absent 2>&1 | tee /dev/stderr)"
+          hosts="$(printf '%s\n' "${recap}" \
+            | grep -E '^[^ ]+ +: +ok=[0-9]+' | grep -vE '^localhost +:' || true)"
+          if [ -z "${hosts}" ]; then
+            echo "::error::no play recap found -- the second state=absent run did not reach a recap" >&2
+            exit 1
+          fi
+          busy="$(printf '%s\n' "${hosts}" | grep -cvE 'changed=0 +unreachable=0 +failed=0\b' || true)"
+          if [ "${busy}" -ne 0 ]; then
+            echo "::error::second state=absent run: ${busy} host(s) changed something or failed" >&2
+            exit 1
+          fi
+          echo "second state=absent run reported changed=0"
 
       - name: Hold the converged guest for interactive work
         if: >-
@@ -403,6 +547,7 @@ jobs:
 
           remaining_minutes="${HOLD_MINUTES}"
           echo "Holding EC2 instance ${instance_id} for ${remaining_minutes} minutes."
+          echo "Reach Nessus with: ssh -L 8834:localhost:8834 ec2-user@<its public IPv4>, then https://localhost:8834"
           while (( remaining_minutes > 0 )); do
             sleep 300
             remaining_minutes=$((remaining_minutes - 5))

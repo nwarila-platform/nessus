@@ -6,7 +6,7 @@
 # Composition runner: builds the combined execution tree and runs the playbook.
 #
 #   1. Clones/updates nwarila-platform/ansible-framework into .compose/ansible-framework
-#      and checks out the commit pinned in .framework-pin (tags once upstream releases).
+#      and checks out the commit pinned in .github/ansible-framework-pin (tags once upstream releases).
 #   2. Overlays this repo's roles into the framework's applications/ namespace (rsync
 #      --delete so stale files never linger).
 #   3. Runs the selected playbook with the framework's ansible.cfg as the chassis
@@ -23,13 +23,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_DIR="${REPO_ROOT}/.compose"
 FRAMEWORK_DIR="${COMPOSE_DIR}/ansible-framework"
 FRAMEWORK_REMOTE='git@github.com:nwarila-platform/ansible-framework.git'
-PIN_FILE="${REPO_ROOT}/.framework-pin"
+PIN_FILE="${REPO_ROOT}/.github/ansible-framework-pin"
 ANSIBLE_PLAYBOOK="${ANSIBLE_PLAYBOOK:-/root/.local/bin/ansible-playbook}"
 
 [ -f "${PIN_FILE}" ] || { echo "!! missing ${PIN_FILE}" >&2; exit 1; }
 PIN="$(tr -d '[:space:]' < "${PIN_FILE}")"
 if ! [[ "${PIN}" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "!! .framework-pin must be a full 40-character lowercase git commit SHA, not a tag/branch: '${PIN}'" >&2
+    echo "!! ${PIN_FILE} must be a full 40-character lowercase git commit SHA, not a tag/branch: '${PIN}'" >&2
     exit 1
 fi
 COMPOSE_PLAYBOOK_VALUE="${COMPOSE_PLAYBOOK-nessus-aws.yml}"
@@ -102,6 +102,21 @@ if [[ -v COMPOSE_INVENTORY ]]; then
     COMPOSE_INVENTORY_PATH="${inventory_target}"
 fi
 
+# --- 0d. Agent selection (fail closed before any side effect) ------------------------------- #
+if [[ -v ANSIBLE_SSH_AGENT ]]; then
+    selected_agent="${ANSIBLE_SSH_AGENT}"
+else
+    selected_agent="${SSH_AUTH_SOCK-}"
+fi
+
+case "${selected_agent}" in
+    ''|auto|none)
+        echo "!! ANSIBLE_SSH_AGENT or SSH_AUTH_SOCK must name an existing agent socket" >&2
+        exit 1
+        ;;
+esac
+export ANSIBLE_SSH_AGENT="${selected_agent}"
+
 # --- 0c. SSH mux isolation (stale ControlMaster sockets hang runs indefinitely) ------------ #
 # An interrupted or killed run can leave a stale SSH multiplex socket to the target, which
 # stalls the next play at its first task. Keep Ansible's control sockets repo-local and start
@@ -126,6 +141,14 @@ echo ">> Framework pinned at $(git -C "${FRAMEWORK_DIR}" rev-parse --short HEAD)
 # every stub it finds, and this repository's roles resolve their sources from this repository.
 if [ -x "${FRAMEWORK_DIR}/scripts/materialize-role-scripts.sh" ]; then
     (cd "${FRAMEWORK_DIR}" && ./scripts/materialize-role-scripts.sh)
+fi
+
+# THIS repository's roles track only files/<Name>.ps1.stub as well, and the copies those resolve to
+# are build artifacts that are never committed. They must be refreshed here, from scripts/, BEFORE
+# the overlay carries them into the framework: without it a run silently proves whatever copy was
+# left on disk by an earlier one, which is a passing proof of code that no longer exists.
+if [ -x "${REPO_ROOT}/scripts/materialize-role-scripts.sh" ]; then
+    (cd "${REPO_ROOT}" && ./scripts/materialize-role-scripts.sh)
 fi
 
 # --- 2. Overlay roles into the framework namespace ------------------------------------------ #
@@ -201,7 +224,93 @@ fi
 # --- 3. Execute with the framework chassis --------------------------------------------------- #
 cd "${FRAMEWORK_DIR}"
 export ANSIBLE_CONFIG="${FRAMEWORK_DIR}/ansible.cfg"
-exec "${ANSIBLE_PLAYBOOK}" \
+
+snapshot_agent_keys() {
+    local destination="$1"
+    local snapshot_status
+
+    if SSH_AUTH_SOCK="${ANSIBLE_SSH_AGENT}" ssh-add -L > "${destination}"; then
+        return 0
+    else
+        snapshot_status=$?
+    fi
+
+    # ssh-add returns 1 when the selected agent is healthy but empty.
+    if [ "${snapshot_status}" -eq 1 ]; then
+        : > "${destination}"
+        return 0
+    fi
+    return "${snapshot_status}"
+}
+
+agent_custody_dir="$(mktemp -d)"
+agent_keys_before="${agent_custody_dir}/before.pub"
+agent_keys_after="${agent_custody_dir}/after.pub"
+
+cleanup_agent_keys() {
+    local run_status=$?
+    local cleanup_status=0
+    local snapshot_status=0
+    local key_line
+    local key_type
+    local key_blob
+
+    trap - EXIT
+    set +e
+
+    snapshot_agent_keys "${agent_keys_after}"
+    snapshot_status=$?
+    if [ "${snapshot_status}" -ne 0 ]; then
+        echo "!! could not snapshot the selected SSH agent during cleanup" >&2
+        cleanup_status="${snapshot_status}"
+    else
+        while IFS= read -r key_line; do
+            case "${key_line}" in
+                *'[added by ansible: PID='*) ;;
+                *) continue ;;
+            esac
+
+            read -r key_type key_blob _ <<< "${key_line}"
+            if awk -v type="${key_type}" -v blob="${key_blob}" \
+                '$1 == type && $2 == blob { found = 1 } END { exit !found }' \
+                "${agent_keys_before}"; then
+                continue
+            fi
+
+            if ! printf '%s\n' "${key_line}" \
+                | SSH_AUTH_SOCK="${ANSIBLE_SSH_AGENT}" ssh-add -d -; then
+                echo "!! could not remove a key added to the selected agent by this run" >&2
+                cleanup_status=1
+            fi
+        done < "${agent_keys_after}"
+    fi
+
+    if ! rm -rf -- "${agent_custody_dir}"; then
+        echo "!! could not remove the SSH-agent custody directory" >&2
+        cleanup_status=1
+    fi
+
+    if [ "${run_status}" -ne 0 ]; then
+        exit "${run_status}"
+    fi
+    exit "${cleanup_status}"
+}
+
+trap cleanup_agent_keys EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if ! snapshot_agent_keys "${agent_keys_before}"; then
+    echo "!! could not snapshot ANSIBLE_SSH_AGENT before the playbook run" >&2
+    exit 1
+fi
+
+set +e
+"${ANSIBLE_PLAYBOOK}" \
     -i "${COMPOSE_INVENTORY_PATH}" \
     "${COMPOSE_PLAYBOOK_PATH}" \
     "$@"
+playbook_status=$?
+set -e
+exit "${playbook_status}"

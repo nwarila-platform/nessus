@@ -1,0 +1,77 @@
+# `nessus_scanner` role
+
+Installs Tenable Nessus at a pinned version on a STIG-hardened RHEL 8 host and brings it up as a
+registered scanner serving HTTPS with a certificate the deployment owns. In one converge it:
+
+1. trusts Tenable's RPM signing key, refused unless its fingerprint is the pinned one;
+2. installs the pinned RPM from a copy verified against its SHA-256 **and** the vendor signature,
+   on the guest, immediately before `dnf` installs it;
+3. starts the service and asserts the declared settings (TLS 1.2 floor, plugin updates on, core
+   updates off);
+4. admits the listener in every active firewalld zone;
+5. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
+   certificate and CA as a set, and imports them into Nessus when what it serves differs;
+6. registers the scanner with its activation code and fetches the plugins;
+7. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**;
+8. converges the one administrator account and proves it by signing in to the API;
+9. verifies the result against the machine: the installed version, the service, the
+   registration, and the fingerprint of the certificate the listener actually serves.
+
+Every step reads before it writes, so a converged host reports no change.
+
+## HTTPS
+
+The certificate is ONE password-protected PKCS#12 bundle: the server key, the server certificate
+and the single CA that signed it. [`scripts/mint-nessus-https.sh`](../../../scripts/mint-nessus-https.sh)
+mints exactly that shape. It creates a private root CA, signs a server certificate that names the
+host, `localhost` and `127.0.0.1`, and destroys the CA key.
+
+The role never trusts the certificate on its word:
+
+- the bundle's SHA-256 is pinned, and checked on the controller and again on the guest;
+- it is decoded on the guest by `/usr/bin/openssl`, the FIPS-validated module, so a bundle this
+  host's crypto policy would refuse fails by name rather than half-installing;
+- before import the key must open the certificate, the CA must verify it, it must be in date for
+  another day, and it must name both this host and `localhost`;
+- the readiness wait trusts **only** the declared CA and connects to `https://localhost:<port>`,
+  so it cannot pass against Nessus's self-generated certificate, another CA or a name mismatch;
+- finally the leaf certificate the listener serves in a live handshake must carry the declared
+  fingerprint.
+
+The plaintext key exists only between decoding and import and is removed in an `always` block;
+the loader removes its whole temporary directory when the role ends as well.
+
+### Why the bundle is AES-256 and not the PKCS#12 default of older tools
+
+RHEL 8 in FIPS mode refuses RC2, 3DES and SHA-1 MACs, the algorithms many tools still use for
+PKCS#12. The mint script writes PBES2/PBKDF2 with AES-256-CBC and a SHA-256 MAC. On 2026-09-30,
+RHEL 8's OpenSSL 1.1.1k decoded that form with FIPS mode forced on. A bundle exported by another
+tool fails at `PROCESS | Decode The Bundle`, and the message names the cause.
+
+## STIG constraints
+
+| Constraint | How the role meets it |
+|---|---|
+| `localpkg_gpgcheck` | Tenable's key is trusted by pinned fingerprint before `dnf` installs the RPM |
+| fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed and the vendor's FIPS-module step is re-run if it was denied mid-transaction |
+| `noexec` on `/tmp`, `/var/tmp`, `/home` | Nothing staged in the loader's temporary directory is executed |
+| FIPS mode | System OpenSSL decodes the bundle; RSA-3072 and SHA-256 throughout |
+| firewalld | The listener is admitted per active zone and proven in the running configuration |
+
+## Inputs
+
+See [`meta/main.yml`](meta/main.yml) for the required inputs and
+[`defaults/main.yml`](defaults/main.yml) for everything with a safe default. Nothing under this
+role names an account, bucket or secret; the playbook supplies them.
+
+| State | Does |
+|---|---|
+| `present` | Everything above |
+| `absent` | Stops and removes the service, the package, the whole install root, the firewall rule and the signing key; proves none remains |
+| `clean` | Removes the superseded certificate material each import leaves behind |
+
+## Licence model
+
+Nessus Professional and Essentials hold exactly one account, so `administrator` is *the* account.
+A converge that finds a different one refuses rather than guessing which is meant. Every account
+write is judged by what the product prints as well as by its exit status.

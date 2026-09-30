@@ -1,0 +1,137 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/tasks/absent_redhat.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Reverses present_redhat.yml completely: the service, the package, everything the product left
+# under its install root (plugins, scan data, the imported certificate), the listener's firewall
+# rule and the vendor signing key. A host that holds none of it changes nothing, so a second
+# absent run reports no change.
+#
+# The registration is not released with Tenable: the activation code is re-used by the next
+# registration, which is what the vendor's reset-on-reinstall model expects.
+#
+# =========================================================================================== #
+---
+- name: 'PROCESS | Remove The Nessus Scanner'
+  vars:
+    __nessus_scanner_installed__: >-
+      {{ nessus_scanner_running.package_name in (ansible_facts.packages | default({})) }}
+    __nessus_scanner_port__: "{{ nessus_scanner_running.listener.port | int }}"
+  block:
+
+    #region ------ [ Process: Stop And Remove The Product ] --------------------------------- #
+
+    - name: 'PROCESS | Stop And Disable The Scanner Service'
+      when: __nessus_scanner_installed__ | bool
+
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "{{ nessus_scanner_running.service_name }}"
+        state: 'stopped'
+
+    - name: 'PROCESS | Remove The Package'
+      ansible.builtin.dnf:
+        autoremove: false
+        name: "{{ nessus_scanner_running.package_name }}"
+        state: 'absent'
+
+    # The package leaves its data behind by design; absent means none of it remains.
+    - name: 'PROCESS | Remove Everything Under The Install Root'
+      ansible.builtin.file:
+        path: "{{ nessus_scanner_running.install_root }}"
+        state: 'absent'
+
+    #endregion --- [ Process: Stop And Remove The Product ] --------------------------------- #
+
+    #region ------ [ Process: Withdraw The Listener From firewalld ] ------------------------ #
+
+    - name: 'BEGIN | Read Whether firewalld Is Running'
+      changed_when: false
+      failed_when: false
+      register: '__nessus_scanner_firewalld__'
+      when: nessus_scanner_running.firewall.manage | bool
+
+      ansible.builtin.command:
+        argv: [ 'firewall-cmd', '--state' ]
+
+    - name: 'PROCESS | Withdraw The Listener From Each Zone'
+      when:
+        - nessus_scanner_running.firewall.manage | bool
+        - __nessus_scanner_firewalld__.rc | default(1) == 0
+      block:
+        # Every zone, not only the active ones: a rule left in a zone that is inactive today is
+        # still a rule the next interface to join it would inherit.
+        - name: 'BEGIN | Read The Zones'
+          changed_when: false
+          register: '__nessus_scanner_zones_read__'
+
+          ansible.builtin.command:
+            argv: [ 'firewall-cmd', '--permanent', '--get-zones' ]
+
+        - name: 'BEGIN | Read Whether Each Zone Still Admits The Listener'
+          changed_when: false
+          failed_when: __nessus_scanner_zone_query__.rc not in [0, 1]
+          loop: "{{ __nessus_scanner_zones_read__.stdout | split }}"
+          register: '__nessus_scanner_zone_query__'
+
+          ansible.builtin.command:
+            argv: [ 'firewall-cmd', '--permanent', "--zone={{ item }}",
+                    "--query-port={{ __nessus_scanner_port__ }}/tcp" ]
+
+        - name: 'PROCESS | Withdraw The Listener Permanently'
+          changed_when: true
+          loop: "{{ __nessus_scanner_zone_query__.results | selectattr('rc', 'equalto', 0) | list }}"
+          loop_control:
+            label: "{{ item.item }}"
+          register: '__nessus_scanner_zone_removed__'
+
+          ansible.builtin.command:
+            argv: [ 'firewall-cmd', '--permanent', "--zone={{ item.item }}",
+                    "--remove-port={{ __nessus_scanner_port__ }}/tcp" ]
+
+        - name: 'PROCESS | Load The Permanent Rules'
+          changed_when: true
+          when: __nessus_scanner_zone_removed__ is changed
+
+          ansible.builtin.command:
+            argv: [ 'firewall-cmd', '--reload' ]
+
+    #endregion --- [ Process: Withdraw The Listener From firewalld ] ------------------------ #
+
+    #region ------ [ Process: Withdraw The Vendor Signing Key ] ----------------------------- #
+
+    - name: 'PROCESS | Withdraw The Vendor Signing Key'
+      ansible.builtin.rpm_key:
+        key: "{{ nessus_scanner_running.signing_key.fingerprint[-8:] }}"
+        state: 'absent'
+
+    #endregion --- [ Process: Withdraw The Vendor Signing Key ] ----------------------------- #
+
+    #region ------ [ Verify: Nothing Remains ] ---------------------------------------------- #
+
+    - name: 'VERIFY | Read Whether The Package Remains'
+      changed_when: false
+      failed_when: false
+      register: '__nessus_scanner_package_after__'
+
+      ansible.builtin.command:
+        argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
+
+    - name: 'VERIFY | Read Whether The Install Root Remains'
+      register: '__nessus_scanner_root_after__'
+
+      ansible.builtin.stat:
+        get_checksum: false
+        path: "{{ nessus_scanner_running.install_root }}"
+
+    - name: 'VERIFY | Require Nothing Of The Scanner To Remain'
+      ansible.builtin.assert:
+        that:
+          - __nessus_scanner_package_after__.rc != 0
+          - not __nessus_scanner_root_after__.stat.exists
+        fail_msg: >-
+          The scanner is not absent: package query rc={{ __nessus_scanner_package_after__.rc }},
+          install root present={{ __nessus_scanner_root_after__.stat.exists }}.
+        quiet: true
+
+    #endregion --- [ Verify: Nothing Remains ] ---------------------------------------------- #

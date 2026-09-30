@@ -1,0 +1,134 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/defaults/main.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Lowest-precedence configuration for the Nessus scanner role. The v3 loader merges the OS overlay
+# in vars/ over this map and publishes the result as 'nessus_scanner_running'; tasks read only the
+# merged map, never these keys directly.
+#
+# WHAT BELONGS HERE: values that are universally safe -- true for anyone running this role,
+# whatever their account, bucket or artifact layout. The product's identity and paths, the vendor
+# signing key, the listener, the TLS floor and the bounds on every wait.
+#
+# WHAT DOES NOT: anything deployment-specific. Artifact locations, digests and secret values
+# change with every site. A concrete default for those is not universally safe -- it is one site's
+# value wearing a default's clothes. The interface declares empty values here; the PLAYBOOK
+# supplies the real values where they are visible and changeable. See meta/main.yml and
+# tasks/validate.yml.
+#
+# =========================================================================================== #
+---
+nessus_scanner_defaults:
+
+  #region ------ [ Installer ] --------------------------------------------------------------- #
+  # The RPM, fetched from S3 by the CONTROLLER and handed to the guest, which verifies the pinned
+  # digest immediately before dnf installs it. The key follows the application repository's
+  # <Publisher>/<Application>/<version>/<file> layout, and the literal token <version> is replaced
+  # with installer.version at fetch, so a version bump is one value and one digest.
+  installer:
+    bucket: ''
+    key: 'Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm'
+    version: ''
+    sha256: ''
+
+  #endregion --- [ Installer ] --------------------------------------------------------------- #
+
+  #region ------ [ Vendor signing key ] ------------------------------------------------------ #
+  # A STIG host checks signatures on local packages too (localpkg_gpgcheck), so the RPM installs
+  # only once Tenable's key is trusted. The key is public and ships in files/; rpm_key refuses it
+  # unless its fingerprint is this one. Tenable signs Nessus 10.4 and later with this 4096-bit key.
+  signing_key:
+    file: 'tenable-4096.gpg'
+    fingerprint: '9E53A34068D18A6E0EE45E41A021B5142F12969D'
+
+  #endregion --- [ Vendor signing key ] ------------------------------------------------------ #
+
+  #region ------ [ Registration ] ------------------------------------------------------------ #
+  # The activation code that registers this scanner with Tenable and entitles it to plugins.
+  # Supplied by the playbook from a secret; never logged.
+  activation_code: ''
+
+  #endregion --- [ Registration ] ------------------------------------------------------------ #
+
+  #region ------ [ Administrator ] ----------------------------------------------------------- #
+  # Nessus Professional and Essentials hold exactly ONE account, so this is the account, not one
+  # of several: a converge that finds a different one refuses rather than guess which is meant.
+  # The password is supplied by the playbook; leading and trailing whitespace is not part of it,
+  # because the product's command line reads it a line at a time.
+  administrator:
+    username: 'nessusadmin'
+    password: ''
+
+  #endregion --- [ Administrator ] ----------------------------------------------------------- #
+
+  #region ------ [ HTTPS certificate ] ------------------------------------------------------- #
+  # ONE password-protected PKCS#12 bundle: the server key, the server certificate and exactly one
+  # CA certificate that signed it (scripts/mint-nessus-https.sh mints this shape). Fetched like the
+  # installer, decoded on the guest with the system's FIPS-validated OpenSSL, and imported only
+  # when what Nessus serves differs from it.
+  certificate:
+    bucket: ''
+    key: ''
+    sha256: ''
+    password: ''
+
+  #endregion --- [ HTTPS certificate ] ------------------------------------------------------- #
+
+  #region ------ [ Listener and settings ] --------------------------------------------------- #
+  listener:
+    port: 8834
+
+  # Asserted with 'nessuscli fix' on every converge; a setting not named here is left alone.
+  # xmlrpc_listen_port is derived from listener.port and must not be named here too.
+  settings:
+    # TLS 1.2 is the floor; TLS 1.3 is negotiated when the client offers it.
+    ssl_mode: 'tls_1_2'
+    # Plugins update themselves daily...
+    auto_update: 'yes'
+    # ...but the software does not. The installed version stays the pinned, digest-verified RPM
+    # this role installed, and fapolicyd, which trusts files by their RPM digest, keeps trusting it.
+    disable_core_updates: 'yes'
+
+  #endregion --- [ Listener and settings ] --------------------------------------------------- #
+
+  #region ------ [ Firewall ] ---------------------------------------------------------------- #
+  # Open the listener in every active firewalld zone. STIG requires firewalld, so a host where it
+  # is not running is reported rather than failed: there is no local filter to open.
+  firewall:
+    manage: true
+
+  #endregion --- [ Firewall ] ---------------------------------------------------------------- #
+
+  #region ------ [ Bounds ] ------------------------------------------------------------------ #
+  # Bounds, not behaviour: how long each wait may run, never what it waits for.
+  timeouts:
+    # The settings store appears some seconds after the service first starts.
+    settings_attempts: 60
+    settings_pause_seconds: 5
+    # Registration downloads the full plugin set before it returns.
+    registration_seconds: 3600
+    # Compiling that plugin set is the long pole of a first converge: 180 x 20 s is an hour.
+    ready_attempts: 180
+    ready_pause_seconds: 20
+
+  # Free space the install root's filesystem must have before registration downloads and unpacks
+  # the plugin set. Tenable's own floor for a scanner is higher; this is the least a first
+  # registration needs to finish rather than fail part-way.
+  minimum_free_gib: 10
+
+  #endregion --- [ Bounds ] ------------------------------------------------------------------ #
+
+  #region ------ [ Product identity ] -------------------------------------------------------- #
+  # Fixed by the vendor's package, not chosen by a site.
+  package_name: 'Nessus'
+  service_name: 'nessusd'
+  install_root: '/opt/nessus'
+  cli_path: '/opt/nessus/sbin/nessuscli'
+  # Where 'nessuscli import-certs' places what the listener serves.
+  served_certificate_path: '/opt/nessus/com/nessus/CA/servercert.pem'
+  served_ca_path: '/opt/nessus/com/nessus/CA/cacert.pem'
+  # The system OpenSSL, deliberately not the copy Nessus bundles: it is the FIPS-validated module,
+  # so a bundle it decodes is one this host's crypto policy accepts.
+  openssl_path: '/usr/bin/openssl'
+
+  #endregion --- [ Product identity ] -------------------------------------------------------- #

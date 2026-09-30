@@ -1,0 +1,29 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/tasks/clean_redhat.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Removes what the product accumulates without being asked, and nothing it runs on: every
+# certificate import leaves a timestamped copy of the material it replaced beside the live files
+# (servercert.pem.<epoch>, serverkey.pem.<epoch>, measured 2026-09-30). The role imports only on
+# difference, so these grow with rotations, not converges -- but they include superseded PRIVATE
+# keys, which have no reason to outlive the rotation that retired them.
+#
+# =========================================================================================== #
+---
+- name: 'BEGIN | Find The Superseded Certificate Material'
+  register: '__nessus_scanner_superseded__'
+
+  ansible.builtin.find:
+    file_type: 'file'
+    paths:
+      - "{{ nessus_scanner_running.served_certificate_path | dirname }}"
+      - "{{ nessus_scanner_running.install_root }}/var/nessus/CA"
+    patterns: [ '*.pem.[0-9]*' ]
+    recurse: false
+
+- name: 'PROCESS | Remove The Superseded Certificate Material'
+  loop: "{{ __nessus_scanner_superseded__.files | map(attribute='path') | list }}"
+
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: 'absent'

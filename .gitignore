@@ -19,13 +19,26 @@
 !/.github/
 !/.github/workflows/
 !/ansible/
+!/ansible/applications/
+!/ansible/applications/nessus_scanner/
+!/ansible/applications/nessus_scanner/defaults/
+!/ansible/applications/nessus_scanner/files/
+!/ansible/applications/nessus_scanner/handlers/
+!/ansible/applications/nessus_scanner/meta/
+!/ansible/applications/nessus_scanner/tasks/
+!/ansible/applications/nessus_scanner/vars/
 !/ansible/inventory/
+!/ansible/playbooks/
+!/dependencies/
+!/dependencies/aws/
+!/dependencies/aws/policies/
+!/dependencies/aws/roles/
+!/docs/
 !/scripts/
 !/terraform/
 
 # --- [ allowed: repository configuration ] -------------------------------------------------- #
 !/.editorconfig
-!/.framework-pin
 !/.gitignore
 !/.yamllint.yml
 
@@ -39,21 +52,80 @@
 
 # --- [ allowed: GitHub configuration ] ------------------------------------------------------ #
 !/.github/CODEOWNERS
-!/.github/renovate.json5
-!/.github/terraform-framework-pin
 !/.github/workflows/aws-deploy.yml
 !/.github/workflows/aws-reaper.yml
 !/.github/workflows/powershell.yml
 !/.github/workflows/quality.yml
+!/.github/renovate.json5
+!/.github/ansible-framework-pin
+!/.github/terraform-framework-pin
 
 # --- [ allowed: the ansible tree ] ---------------------------------------------------------- #
+!/ansible/applications/nessus_scanner/README.md
+!/ansible/applications/nessus_scanner/defaults/main.yml
+# Tenable's PUBLIC RPM signing key; the role refuses it unless its fingerprint is the pinned one.
+!/ansible/applications/nessus_scanner/files/tenable-4096.gpg
+!/ansible/applications/nessus_scanner/handlers/main.yml
+!/ansible/applications/nessus_scanner/meta/main.yml
+!/ansible/applications/nessus_scanner/tasks/absent_redhat.yml
+!/ansible/applications/nessus_scanner/tasks/clean_redhat.yml
+!/ansible/applications/nessus_scanner/tasks/main.yml
+!/ansible/applications/nessus_scanner/tasks/present_redhat.yml
+!/ansible/applications/nessus_scanner/tasks/stage_artifact.yml
+!/ansible/applications/nessus_scanner/tasks/validate.yml
+!/ansible/applications/nessus_scanner/vars/redhat.yml
 !/ansible/inventory/README.md
 !/ansible/inventory/aws_ec2.yml
+!/ansible/playbooks/nessus-aws.yml
+
+# --- [ allowed: dependency declarations ] --------------------------------------------------- #
+# The explicit per-object estate contract; every file is also covered by MANIFEST.sha256.
+!/dependencies/MANIFEST.sha256
+!/dependencies/README.md
+!/dependencies/registry-values.yml
+!/dependencies/aws/artifacts.yml
+!/dependencies/aws/manifest.json
+!/dependencies/aws/policies/nwarila-platform_nessus_admin_s3.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_ebs.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_ec2.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_eni.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_iam.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_s3.json
+!/dependencies/aws/policies/nwarila-platform_nessus_reaper_sg.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_ebs.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_ec2.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_eni.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_iam.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_kms.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_s3.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_sg.json
+!/dependencies/aws/policies/nwarila-platform_nessus_runner_ssm.json
+!/dependencies/aws/roles/nwarila-platform_nessus_admin.trust.json
+!/dependencies/aws/roles/nwarila-platform_nessus_admin.yml
+!/dependencies/aws/roles/nwarila-platform_nessus_reaper.trust.json
+!/dependencies/aws/roles/nwarila-platform_nessus_reaper.yml
+!/dependencies/aws/roles/nwarila-platform_nessus_runner.trust.json
+!/dependencies/aws/roles/nwarila-platform_nessus_runner.yml
+
+# --- [ allowed: published documentation ] --------------------------------------------------- #
+# Enumerated: local working notes live alongside these on disk and are never published.
+!/docs/TECH-DEBT.md
 
 # --- [ allowed: scripts ] ------------------------------------------------------------------- #
+!/scripts/check-dependencies.py
 !/scripts/compose-and-run.sh
+!/scripts/converge-held-bed.sh
 !/scripts/materialize-role-scripts.sh
+!/scripts/mint-nessus-https.sh
 
 # --- [ allowed: terraform (data-only; resources live in the pinned framework) ] -------------- #
 !/terraform/README.md
 !/terraform/aws.tfvars
+
+# --- [ never tracked, even by a future allowance ] ------------------------------------------ #
+# Composition build tree (framework checkout + overlaid roles) and build worktrees. Minted HTTPS
+# material is written OUTSIDE the tree by scripts/mint-nessus-https.sh and never belongs here.
+/.compose/
+/.worktrees/
+*.p12
+*-password.txt
