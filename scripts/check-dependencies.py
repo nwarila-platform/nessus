@@ -75,7 +75,8 @@ POLICY_VERSIONS[f"{PREFIX}_runner_ec2"] = "v2"
 # v2 added ReadOnlyTheNessusDeploymentObjects, published from the tracked document on 2026-09-30.
 POLICY_VERSIONS[f"{PREFIX}_runner_s3"] = "v2"
 EXPORTED = "2026-09-30"
-NOT_YET_APPLIED: list[str] = []
+# runner_ebs gains the tag-scoped preservation-snapshot grants (preserve_data).
+NOT_YET_APPLIED = [f"{PREFIX}_runner_ebs"]
 
 BUCKETS = {
     "registry://aws/s3/ansible": "<account-id>-ansible",
