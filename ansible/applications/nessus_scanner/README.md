@@ -31,7 +31,8 @@ volume, mounted there by `linux_disk_manager` before this role runs, so the OS d
 replaced underneath it. On a replacement OS the role:
 - reinstalls the package over the preserved tree;
 - finds the settings, certificate and account already in place, and writes none of them;
-- re-registers only if the registration did not survive the new machine.
+- registers again, because Tenable binds a registration to the machine. On 2026-09-30 a preserved
+  scanner reported itself unregistered on a new AWS instance.
 
 An OS-swap rehearsal on RHEL 8.10 on 2026-09-30 moved the volume to a machine with a different
 hostname and machine-id. The installation UUID, the account and its password, the settings and

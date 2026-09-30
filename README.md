@@ -100,6 +100,9 @@ converge then:
 The opt-in proof writes a record into Nessus's database before the replacement and requires it to
 read back afterwards. It then runs the same `changed=0` gate on the rebuilt host.
 
+Tenable binds a registration to the machine, so the replacement registers again. With Nessus
+Essentials, an OS-drive replacement therefore needs a fresh activation code (TD-007).
+
 ## Data preservation
 
 Every run is ephemeral by default: the data volume is created blank and destroyed with the host.
@@ -112,6 +115,10 @@ A `preserve_data` dispatch changes both ends of that:
 
 The two newest preserved snapshots are kept. The runner can delete only snapshots carrying those
 tags.
+
+What carries over is everything Nessus stores: settings, the imported certificate, the account,
+plugins and scan results. What does not carry over is the registration, which Tenable binds to
+the machine; a new instance registers again (measured 2026-09-30).
 
 ## What must exist before a deploy
 
@@ -140,8 +147,23 @@ The `nwarila-platform_nessus_admin` role can write everything under
 
 ## Status
 
-The role has not yet converged on AWS end to end. The installer, the HTTPS bundle, the
-administrator password and the runner grant are in place (2026-09-30); the first run waits only on
-the activation code. The install, the settings store, the scripted account creation, API sign-in, and the
-PKCS#12 decode (including under forced FIPS mode), import and validated HTTPS were each measured
-on RHEL 8.10 on 2026-09-30. Pinned product version: 10.12.4.
+**Deployed and proven through CI/CD on 2026-09-30.** AWS Deploy run
+[36773018135](https://github.com/nwarila-platform/nessus/actions/runs/36773018135) ran green end
+to end with no manual intervention, on the CIS RHEL 8 STIG image. In that run:
+- `/opt/nessus` was provisioned on its own data volume;
+- the pinned Nessus 10.12.4 was installed, registered and reached `ready` over HTTPS validated
+  against the declared CA and hostname;
+- the administrator account was proven by signing in;
+- a second converge reported `changed=0`;
+- the data volume was preserved as a snapshot, and the environment was destroyed.
+
+**Data preservation is proven on a new machine.** Run
+[36779428440](https://github.com/nwarila-platform/nessus/actions/runs/36779428440) seeded a new
+instance's data volume from that snapshot. The disk was adopted without formatting, and the
+package was reinstalled. The settings, certificate and account were found intact, with nothing
+rewritten, re-imported or re-created.
+
+**Tenable's registration does not move with the data.** On a new machine the preserved scanner
+reports itself unregistered and must register again. That run's registration was refused because
+the Essentials code in S3 had already been spent (TD-007). So every new machine — every run, and
+every OS-drive replacement — needs a fresh Essentials code, or a licence whose code re-registers.
