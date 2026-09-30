@@ -74,6 +74,8 @@ POLICY_VERSIONS = {name: "v1" for name in POLICY_NAMES}
 POLICY_VERSIONS[f"{PREFIX}_runner_ec2"] = "v2"
 # v2 added ReadOnlyTheNessusDeploymentObjects, published from the tracked document on 2026-09-30.
 POLICY_VERSIONS[f"{PREFIX}_runner_s3"] = "v2"
+# v2 added the tag-scoped preserve_data snapshot grants, published on 2026-09-30.
+POLICY_VERSIONS[f"{PREFIX}_runner_ebs"] = "v2"
 EXPORTED = "2026-09-30"
 NOT_YET_APPLIED: list[str] = []
 

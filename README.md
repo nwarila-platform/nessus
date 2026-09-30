@@ -65,9 +65,10 @@ The `aws-deploy` workflow owns the lifecycle:
 4. Terraform destroys the host.
 
 A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
-it recurs. `workflow_dispatch` adds four inputs:
+it recurs. `workflow_dispatch` adds five inputs:
 - `hold_minutes` keeps the scanner up for interactive work;
 - `os_swap` replaces the OS drive and proves the scanner resumes on its data volume (below);
+- `preserve_data` carries the scanner's data from one run to the next (below);
 - `absent_proof` proves `state=absent` removes it idempotently;
 - `skip_products` builds the host alone.
 
@@ -99,13 +100,26 @@ converge then:
 The opt-in proof writes a record into Nessus's database before the replacement and requires it to
 read back afterwards. It then runs the same `changed=0` gate on the rebuilt host.
 
+## Data preservation
+
+Every run is ephemeral by default: the data volume is created blank and destroyed with the host.
+A `preserve_data` dispatch changes both ends of that:
+- **Start.** The data volume is created from the newest completed snapshot tagged `Preserve=true`
+  for this repository, so the converge adopts a volume that already holds the scanner's
+  settings, certificate, account, plugins and scan results.
+- **Teardown.** The instance is stopped, which shuts Nessus down and unmounts the volume cleanly.
+  The volume is then snapshotted with the same tags before it is destroyed.
+
+The two newest preserved snapshots are kept. The runner can delete only snapshots carrying those
+tags.
+
 ## What must exist before a deploy
 
 | Object | Where | Made by |
 |---|---|---|
 | Nessus RPM | `s3://<account-id>-apprepo/Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm` | Tenable's download, verified against the pinned SHA-256 |
 | HTTPS bundle and its password | `s3://<account-id>-ansible/applications/nessus/nessus-https.p12`, `…/nessus-https-p12-password.txt` | `scripts/mint-nessus-https.sh`; its digest is pinned in the playbook |
-| Activation code | `s3://<account-id>-ansible/applications/nessus/activation-code.txt` | Tenable |
+| Activation code | `s3://<account-id>-ansible/applications/nessus/activation-code.txt` | Tenable. A Nessus Essentials code registers exactly one scanner, so every deploy that registers a new scanner needs a fresh one |
 | Administrator password | `s3://<account-id>-ansible/applications/nessus/administrator-password.txt` | One line, at least 12 characters |
 | Runner read grant | `nwarila-platform_nessus_runner_s3` v2 | Applied 2026-09-30 from [`dependencies/aws/`](dependencies/) |
 

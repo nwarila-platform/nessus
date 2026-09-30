@@ -28,9 +28,23 @@ separately declare authorization, and the validator proves the two agree.
 There is no `ad/` directory because this repository's verified Active Directory footprint is
 empty: the scanner joins no directory.
 
-## The one change from the fleet baseline
+## Changes from the fleet baseline
 
-`nwarila-platform_nessus_runner_s3` carries one statement the other repositories' runners do not:
+**`nwarila-platform_nessus_runner_ebs` v2 (published 2026-09-30):** the `preserve_data` grants.
+- `ec2:DescribeSnapshots`.
+- `ec2:CreateSnapshot`, but only from this repository's own volumes, and only into snapshots
+  requested with `Preserve=true`, `ManagedBy=aws-deploy` and this repository's identity tags.
+- Tag-on-create for those snapshots.
+- `ec2:DeleteSnapshot`, but only for snapshots carrying those same tags.
+
+Creating a volume from a snapshot needs nothing new: the baseline `CreateTaggedVolume` statement
+already covers the source snapshot.
+
+IAM policy simulation of the published v2 allowed each intended case and denied three near-misses:
+snapshotting another repository's volume, creating an untagged snapshot, and deleting a snapshot
+without the preservation tags.
+
+**`nwarila-platform_nessus_runner_s3`** carries one statement the other repositories' runners do not:
 `ReadOnlyTheNessusDeploymentObjects`. It grants `s3:GetObject` on exactly the four objects under
 `<account-id>-ansible/applications/nessus/` that the playbook reads: the activation code, the
 administrator password, the HTTPS bundle and its password. It was published from the tracked

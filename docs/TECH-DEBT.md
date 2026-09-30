@@ -74,3 +74,18 @@
   to feed it, would be worse than carrying none.
 - **Exit criteria:** the first script pair lands under `scripts/` together with the reference
   `powershell.yml`, byte-identical to the reference, and its matrix passes.
+
+## TD-007 — OPEN — a Nessus Essentials code registers one scanner, once
+
+- **Recorded:** 2026-09-30.
+- **Issue:** the licence is Nessus Essentials: 5 IPs, one account. Its activation code registers
+  exactly one scanner. The second registration of the same code was refused with HTTP 400 (run
+  36763608707). The reference lifecycle registers a brand-new scanner on every deploy-input push
+  and every week, so each such run needs a fresh code, and a run without one goes red at
+  registration, by name.
+- **Decision (2026-09-30):** keep the ephemeral lifecycle and supply a fresh code per run.
+  `preserve_data` carries the scanner's data between runs, but whether a preserved registration
+  survives a new machine is decided by Tenable, not by this repository.
+- **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), or
+  a proven preserved registration that survives a new machine, so that ordinary runs stop
+  consuming codes.
