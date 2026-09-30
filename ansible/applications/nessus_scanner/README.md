@@ -28,11 +28,21 @@ Every step reads before it writes, so a converged host reports no change.
 The role treats its install root, `/opt/nessus`, as the unit of the scanner's data: binaries,
 plugins, settings, certificates, accounts and scan results. In the composed play it is its own
 volume, mounted there by `linux_disk_manager` before this role runs, so the OS disk can be
-replaced underneath it. On a replacement OS the role:
-- reinstalls the package over the preserved tree;
-- finds the settings, certificate and account already in place, and writes none of them;
-- registers again, because Tenable binds a registration to the machine. On 2026-09-30 a preserved
-  scanner reported itself unregistered on a new AWS instance.
+replaced underneath it.
+
+The role follows the fleet's rule for application data (PDQ, WSUS, Wazuh): **if the volume already
+holds a scanner, adopt it; otherwise install one.** It decides before any package transaction,
+from the installation's identity: `var/nessus/uuid` and `var/nessus/master.key`.
+
+| The volume holds | The role |
+|---|---|
+| No identity | Installs a fresh scanner onto it |
+| An identity this OS has never run (the OS was replaced) | **Adopts** it: reinstalls the package over the tree, then requires the identity to have come through byte for byte |
+| The identity of the scanner this OS already runs | Converges it in place |
+
+An adopted scanner keeps its settings, certificate and account, and the role writes none of them.
+It registers again, because Tenable binds a registration to the machine. On 2026-09-30 an
+adopted scanner reported itself unregistered on a new AWS instance.
 
 An OS-swap rehearsal on RHEL 8.10 on 2026-09-30 moved the volume to a machine with a different
 hostname and machine-id. The installation UUID, the account and its password, the settings and

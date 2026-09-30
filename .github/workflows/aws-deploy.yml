@@ -25,9 +25,6 @@
 #   * The scanner's whole install root is a standalone data volume, so the OS disk is
 #     replaceable: os_swap bumps refresh_serial, re-converges onto the re-attached volume, and
 #     proves Nessus reads back a record written into its database before the replacement.
-#   * preserve_data (opt-in) seeds the data volume from the newest snapshot tagged Preserve=true
-#     and, at teardown, stops the instance and snapshots the volume again before it is destroyed:
-#     compute stays ephemeral while the scanner's data carries from one run to the next.
 #   * One fixed state key; this workflow's concurrency group prevents overlapping applies and
 #     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply,
 #     and aws-reaper.yml destroys what a run killed before destroy leaves behind.
@@ -47,10 +44,6 @@ name: AWS Deploy
         default: '0'
       os_swap:
         description: After converge, replace the OS drive and prove the scanner resumes on its data volume
-        type: boolean
-        default: false
-      preserve_data:
-        description: Start from the newest preserved data snapshot, and preserve this run's data volume at teardown
         type: boolean
         default: false
       absent_proof:
@@ -295,45 +288,6 @@ jobs:
           echo "DEBUG_IP=${debug_ip}" >> "${GITHUB_ENV}"
           echo 'operator IPv4 resolved and validated'
 
-      # Every Terraform command below reads this one file. A preserve_data run swaps it for a
-      # runtime copy that seeds the data volume from a snapshot; nothing else ever differs.
-      - name: Select the Terraform input
-        run: echo "TFVARS_FILE=${GITHUB_WORKSPACE}/terraform/aws.tfvars" >> "${GITHUB_ENV}"
-
-      # DATA PRESERVATION (opt-in). The newest completed snapshot tagged Preserve=true for this
-      # repository becomes the data volume's source, so the converge adopts a volume that already
-      # holds the scanner's settings, certificate, account, plugins and scan data. With none yet,
-      # the run starts blank and its teardown writes the first one.
-      - name: Seed the data volume from the newest preserved snapshot
-        if: inputs.preserve_data
-        env:
-          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
-        run: |
-          set -euo pipefail
-          snapshot="$(aws ec2 describe-snapshots --owner-ids self \
-            --filters "Name=tag:Repository,Values=${GITHUB_REPOSITORY}" \
-                      "Name=tag:RepositoryId,Values=${GITHUB_REPOSITORY_ID}" \
-                      "Name=tag:Function,Values=NESSUS" \
-                      "Name=tag:Preserve,Values=true" \
-                      "Name=status,Values=completed" \
-            --query 'reverse(sort_by(Snapshots,&StartTime))[0].SnapshotId' --output text)"
-          if [[ ! "${snapshot}" =~ ^snap-[0-9a-f]+$ ]]; then
-            echo 'no preserved snapshot yet: this run starts blank and preserves its volume at teardown'
-            exit 0
-          fi
-          # The declaration names exactly one data volume, whose snapshot_id is null by design;
-          # anything else means the file changed shape and a blind substitution would be wrong.
-          count="$(grep -cE '^[[:space:]]*snapshot_id[[:space:]]*=[[:space:]]*null[[:space:]]*$' terraform/aws.tfvars || true)"
-          if [ "${count}" -ne 1 ]; then
-            echo "::error::expected exactly one 'snapshot_id = null' in terraform/aws.tfvars; found ${count}."
-            exit 1
-          fi
-          runtime="${RUNNER_TEMP}/aws.runtime.tfvars"
-          sed -E "s/^([[:space:]]*snapshot_id[[:space:]]*=[[:space:]]*)null[[:space:]]*$/\1\"${snapshot}\"/" \
-            terraform/aws.tfvars > "${runtime}"
-          echo "TFVARS_FILE=${runtime}" >> "${GITHUB_ENV}"
-          echo "the data volume is seeded from ${snapshot}"
-
       - name: Terraform init
         id: tf-init
         working-directory: .frameworks/aws-terraform-framework/terraform
@@ -357,7 +311,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform destroy -input=false -auto-approve -lock-timeout=300s    \
-            -var-file="${TFVARS_FILE}"             \
+            -var-file="${GITHUB_WORKSPACE}/terraform/aws.tfvars"             \
             -var "commit_sha=$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)" \
             -var "environment=test"                                          \
             -var "repository=${GITHUB_REPOSITORY}"                           \
@@ -378,7 +332,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform apply -input=false -auto-approve -lock-timeout=120s      \
-            -var-file="${TFVARS_FILE}"             \
+            -var-file="${GITHUB_WORKSPACE}/terraform/aws.tfvars"             \
             -var "commit_sha=$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)" \
             -var "environment=test"                                          \
             -var "repository=${GITHUB_REPOSITORY}"                           \
@@ -570,7 +524,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform apply -input=false -auto-approve -lock-timeout=120s      \
-            -var-file="${TFVARS_FILE}"             \
+            -var-file="${GITHUB_WORKSPACE}/terraform/aws.tfvars"             \
             -var "commit_sha=$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)" \
             -var "environment=test"                                          \
             -var "refresh_serial=1"                                          \
@@ -581,8 +535,9 @@ jobs:
             ${DEBUG_IP:+-var "debug_ip=${DEBUG_IP}"}
 
       # The OS is new, so this is a first converge again: the disk role adopts the labelled volume
-      # without formatting it, and the scanner role reinstalls the package over the preserved
-      # install root. If Tenable ties the registration to the machine, it registers again here.
+      # without formatting it, and the scanner role adopts the scanner on it, reinstalling the
+      # package over the install root and requiring the scanner's identity to come through
+      # unchanged. Tenable ties the registration to the machine, so it registers again here.
       - name: Re-converge onto the re-attached data volume
         if: inputs.os_swap
         timeout-minutes: 90
@@ -759,62 +714,6 @@ jobs:
           role-session-name: aws-deploy-${{ github.run_id }}-teardown
           role-duration-seconds: 3600
 
-      # DATA PRESERVATION (opt-in), before the destroy that would delete the volume. Stopping
-      # the instance first shuts Nessus down and unmounts the volume, so the snapshot is clean
-      # rather than merely crash-consistent. The two newest preserved snapshots are kept; older
-      # ones are deleted -- the grant allows deleting only snapshots carrying these tags.
-      - name: Preserve the data volume as a snapshot
-        id: preserve
-        if: >-
-          always() &&
-          inputs.preserve_data &&
-          steps.tf-apply.outcome == 'success'
-        timeout-minutes: 50
-        env:
-          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
-        run: |
-          set -euo pipefail
-          run_filters=("Name=tag:Repository,Values=${GITHUB_REPOSITORY}"
-                       "Name=tag:RepositoryId,Values=${GITHUB_REPOSITORY_ID}"
-                       "Name=tag:RunId,Values=${GITHUB_RUN_ID}")
-          volume="$(aws ec2 describe-volumes --filters "${run_filters[@]}" "Name=tag:Function,Values=NESSUS" \
-            --query 'Volumes[0].VolumeId' --output text)"
-          if [[ ! "${volume}" =~ ^vol-[0-9a-f]+$ ]]; then
-            echo "::error::this run's data volume was not found; nothing was preserved."
-            exit 1
-          fi
-          instance="$(aws ec2 describe-instances --filters "${run_filters[@]}" \
-            "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-            --query 'Reservations[].Instances[].InstanceId' --output text)"
-          if [[ "${instance}" =~ ^i-[0-9a-f]+$ ]]; then
-            aws ec2 stop-instances --instance-ids "${instance}" > /dev/null
-            aws ec2 wait instance-stopped --instance-ids "${instance}"
-            echo "instance ${instance} stopped; ${volume} is unmounted"
-          fi
-          snapshot="$(aws ec2 create-snapshot --volume-id "${volume}" \
-            --description "Nessus data volume preserved by ${GITHUB_REPOSITORY} run ${GITHUB_RUN_ID}" \
-            --tag-specifications "ResourceType=snapshot,Tags=[{Key=Name,Value=nessus-data},{Key=Function,Value=NESSUS},{Key=Preserve,Value=true},{Key=ManagedBy,Value=aws-deploy},{Key=Repository,Value=${GITHUB_REPOSITORY}},{Key=RepositoryId,Value=${GITHUB_REPOSITORY_ID}},{Key=RunId,Value=${GITHUB_RUN_ID}},{Key=CommitSha,Value=${GITHUB_SHA}}]" \
-            --query SnapshotId --output text)"
-          # The stock waiter gives up after ten minutes; a first snapshot of a full plugin set can
-          # take longer, so this polls until the budget above.
-          until [ "$(aws ec2 describe-snapshots --snapshot-ids "${snapshot}" --query 'Snapshots[0].State' --output text)" = completed ]; do
-            state="$(aws ec2 describe-snapshots --snapshot-ids "${snapshot}" --query 'Snapshots[0].[State,Progress]' --output text)"
-            [[ "${state}" == error* ]] && { echo "::error::snapshot ${snapshot} failed: ${state}"; exit 1; }
-            sleep 20
-          done
-          echo "preserved ${volume} as ${snapshot}"
-          mapfile -t stale < <(aws ec2 describe-snapshots --owner-ids self \
-            --filters "Name=tag:Repository,Values=${GITHUB_REPOSITORY}" \
-                      "Name=tag:RepositoryId,Values=${GITHUB_REPOSITORY_ID}" \
-                      "Name=tag:Function,Values=NESSUS" \
-                      "Name=tag:Preserve,Values=true" \
-                      "Name=status,Values=completed" \
-            --query 'reverse(sort_by(Snapshots,&StartTime))[2:].SnapshotId' --output text | tr '\t' '\n' | sed '/^$/d')
-          for old in "${stale[@]}"; do
-            aws ec2 delete-snapshot --snapshot-id "${old}"
-            echo "retired older preserved snapshot ${old}"
-          done
-
       # Gated on INIT, not apply: a failed apply still leaves state to tear down.
       - name: Terraform destroy (always)
         id: tf-destroy
@@ -828,7 +727,7 @@ jobs:
         run: |
           set -euo pipefail
           terraform destroy -input=false -auto-approve -lock-timeout=300s    \
-            -var-file="${TFVARS_FILE}"             \
+            -var-file="${GITHUB_WORKSPACE}/terraform/aws.tfvars"             \
             -var "commit_sha=$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)" \
             -var "environment=test"                                          \
             -var "repository=${GITHUB_REPOSITORY}"                           \

@@ -32,8 +32,8 @@
 - **Closure evidence:**
   - Run 36773018135 converged green onto a standalone `Function=NESSUS` volume mounted at
     `/opt/nessus` by `linux_disk_manager`, and its second converge reported `changed=0`.
-  - Run 36779428440 seeded a new instance's volume from that run's snapshot. The disk was adopted
-    unformatted and the package reinstalled. The settings, certificate and account were found
+  - Run 36779428440 gave a new instance a volume restored from a snapshot of that run's. The disk
+    was adopted unformatted and the package reinstalled. The settings, certificate and account were found
     intact: none rewritten, re-imported or re-created.
   - The lab rehearsal showed the same when the volume moved between machines with different
     hostnames and machine-ids.
@@ -79,12 +79,15 @@
 - **Recorded:** 2026-09-30.
 - **Issue:** the licence is Nessus Essentials: 5 IPs, one account. Its activation code registers
   exactly one scanner; a second registration of the same code was refused with HTTP 400 (runs
-  36763608707 and 36779428440). Tenable also binds a registration to the machine: a preserved
+  36763608707 and 36779428440). Tenable also binds a registration to the machine: an adopted
   scanner on a new instance reports itself unregistered (run 36779428440). So every new
   machine — every run, and every OS-drive replacement — needs a fresh code, and a run without
   one goes red at registration, by name.
 - **Decision (2026-09-30):** keep the ephemeral lifecycle; the owner supplies a fresh code per
-  registering run. `preserve_data` carries everything else between runs.
+  registering run. No copy of the registration's own records avoids that: run 36779428440
+  carried every one of them onto a new instance, which still reported unregistered. For the same
+  reason the snapshot-based `preserve_data` flag was withdrawn the same day. It carried the data
+  between runs, but not the registration it was wanted for.
 - **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), so
   that ordinary runs and OS-drive replacements stop consuming codes, and an `os_swap` run passes
   end to end.
