@@ -1,0 +1,15 @@
+schema: aws-role/v1
+name: "nwarila-platform_nessus_reaper"
+session_seconds: 3600
+trust: "nwarila-platform_nessus_reaper.trust.json"
+attach:
+  - "nwarila-platform_nessus_reaper_ebs"
+  - "nwarila-platform_nessus_reaper_ec2"
+  - "nwarila-platform_nessus_reaper_eni"
+  - "nwarila-platform_nessus_reaper_iam"
+  - "nwarila-platform_nessus_reaper_s3"
+  - "nwarila-platform_nessus_reaper_sg"
+managed_attach: []
+path: /
+description: null
+managed_by: consumer

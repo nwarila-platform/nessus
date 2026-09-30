@@ -1,0 +1,26 @@
+# This file declares consumption; IAM policy documents declare authorization.
+# Every object here is read on the CONTROLLER with the runner's credentials; the guest receives
+# a verified copy and never holds cloud credentials of its own.
+schema: aws-artifacts/v1
+artifacts:
+  # Tenable's published SHA-256 for this build; the guest verifies it and the vendor signature.
+  - bucket: "registry://aws/s3/apprepo"
+    key: "Tenable Inc/Nessus/10.12.4/Tenable-Inc_Nessus_10.12.4-el8_x64.rpm"
+    sha256: df378dd85dea63c0bd1e07d35262e967dca1a0286d84e783edcf956fa85a5444
+    access: controller-fetch
+  # The HTTPS bundle minted by scripts/mint-nessus-https.sh.
+  - bucket: "registry://aws/s3/ansible"
+    key: "applications/nessus/nessus-https.p12"
+    sha256: f1a31cd9bb7db4c9c82c475059fb0625bf85ab7f305de14250d7d6a544924044
+    access: controller-fetch
+# Secret values are never pinned by digest here: rotating one is an upload, not a commit.
+secrets:
+  - bucket: "registry://aws/s3/ansible"
+    key: "applications/nessus/activation-code.txt"
+    access: controller-secret-lookup
+  - bucket: "registry://aws/s3/ansible"
+    key: "applications/nessus/administrator-password.txt"
+    access: controller-secret-lookup
+  - bucket: "registry://aws/s3/ansible"
+    key: "applications/nessus/nessus-https-p12-password.txt"
+    access: controller-secret-lookup

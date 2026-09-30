@@ -1,0 +1,48 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/meta/main.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+# Role metadata for nessus_scanner. Description-only: NOT an enforcing argument spec. The role's
+# tasks/validate.yml enforces its merged-config guards.
+#
+# REQUIRED INPUTS -- declared empty in defaults and supplied by the playbook.
+#
+# These are deployment-specific: every artifact location carries an account id, and every secret
+# changes with the site. Concrete defaults would ship one site's values as if they were
+# universally safe, so the playbook states them where a reader can see what is installed.
+#
+#   nessus_scanner.installer.bucket         S3 bucket holding the RPM (the application repository).
+#   nessus_scanner.installer.version        Three-part product version the RPM delivers; compared
+#                                           with the installed package to stay idempotent.
+#   nessus_scanner.installer.sha256         Lowercase 64-character digest of that object, verified
+#                                           on the GUEST immediately before dnf installs it.
+#   nessus_scanner.activation_code          The Tenable activation code that registers the scanner.
+#   nessus_scanner.administrator.password   Password of the one Nessus account.
+#   nessus_scanner.certificate.bucket       S3 bucket holding the PKCS#12 HTTPS bundle.
+#   nessus_scanner.certificate.key          Its key; the bundle holds the server key, the server
+#                                           certificate and exactly one CA certificate.
+#   nessus_scanner.certificate.sha256       Lowercase 64-character digest of the bundle.
+#   nessus_scanner.certificate.password     The bundle's password.
+#
+# The playbook resolves secret values on the CONTROLLER. The guest is never given cloud
+# credentials: the controller fetches every object and hands the guest a verified copy.
+# =========================================================================================== #
+---
+galaxy_info:
+  role_name: 'nessus_scanner'
+  namespace: 'nwarila_platform'
+  author: 'nwarila-platform'
+  description: >-
+    Tenable Nessus scanner for STIG-hardened RHEL 8. Installs the pinned, digest- and
+    signature-verified RPM, asserts its settings, admits the listener in firewalld, imports a
+    declared PKCS#12 certificate for HTTPS, registers the scanner and fetches its plugins, and
+    converges its one administrator account -- then proves the result over HTTPS validated against
+    the declared CA and hostname.
+  license: 'MIT'
+  min_ansible_version: '2.17'
+  platforms:
+    - name: 'EL'
+      versions:
+        - '8'
+  galaxy_tags: ['rhel', 'stig', 'nessus', 'tenable', 'vulnerability', 'scanner', 'security']
+
+dependencies: []

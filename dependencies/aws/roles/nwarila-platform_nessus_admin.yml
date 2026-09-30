@@ -1,0 +1,18 @@
+schema: aws-role/v1
+name: "nwarila-platform_nessus_admin"
+session_seconds: 3600
+trust: "nwarila-platform_nessus_admin.trust.json"
+attach:
+  - "nwarila-platform_nessus_admin_s3"
+  - "nwarila-platform_nessus_runner_ebs"
+  - "nwarila-platform_nessus_runner_ec2"
+  - "nwarila-platform_nessus_runner_eni"
+  - "nwarila-platform_nessus_runner_iam"
+  - "nwarila-platform_nessus_runner_kms"
+  - "nwarila-platform_nessus_runner_s3"
+  - "nwarila-platform_nessus_runner_sg"
+  - "nwarila-platform_nessus_runner_ssm"
+managed_attach: []
+path: /
+description: null
+managed_by: consumer

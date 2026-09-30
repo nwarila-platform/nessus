@@ -10,7 +10,7 @@
 #   * IDENTITY: assumes the repository's REAPER role — describes, tag-scoped terminate/
 #     detach/revoke/delete, and state-file access only. It cannot create, run, tag, read
 #     artifacts, or touch credentials.
-#   * THE RATIFIED REFRESH DECISION: the reaper role deliberately has NO kms or ssm grants,
+#   * THE REFRESH DECISION: the reaper role deliberately has NO kms or ssm grants,
 #     so `terraform destroy` here MUST run with -refresh=false — a refresh would resolve
 #     data sources (kms alias, ami parameters) the role cannot read. Destroy-from-state
 #     needs neither. Widening the role instead of passing the flag is the wrong fix.
@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -140,7 +140,7 @@ jobs:
 
       - name: Checkout aws-terraform-framework (pinned)
         if: steps.stranded.outputs.found == 'true'
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: ${{ github.repository_owner }}/aws-terraform-framework
           ref: ${{ steps.pins.outputs.terraform }}

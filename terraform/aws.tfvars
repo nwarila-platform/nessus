@@ -9,18 +9,18 @@
 #
 # REACHABILITY — DIRECT SSH OVER A PUBLIC IPv4. The workflow discovers the runner's public IPv4
 # and passes it as the framework's runtime-only runner_ip variable. When an operator hostname is
-# configured it resolves that too and passes debug_ip, which adds RDP for a person working on the
-# host. The framework attaches one security group carrying both to every interface. The instance
-# receives a public IPv4 at launch; no Elastic IP is involved. The account has no NAT and no VPC
-# endpoints.
+# configured it resolves that too and passes debug_ip, so a person can reach a held host and its
+# Nessus listener through an SSH tunnel. The framework attaches one security group carrying both
+# to every interface. The instance receives a public IPv4 at launch; no Elastic IP is involved.
+# The account has no NAT and no VPC endpoints.
 #
 # The dependency worth knowing: MapPublicIpOnLaunch is an attribute of a shared subnet no
 # repository owns. Direct SSH requires the instance's launch-time public address as well as the
 # runner-scoped security group.
 #
-# readiness_gate is FALSE by design: the playbook owns the bounded direct-SSH readiness check.
-# The host is Linux; SSH lands on the AMI's ec2-user and the composed play's bootstrap takes it
-# from there.
+# readiness_gate is FALSE by design: credential_resolver owns the bounded-round connection wait.
+# The host is Linux; SSH lands on the image's ec2-user with the account key pair, and the
+# framework's redhat_rocky_8 bootstrap installs the Python every later module runs under.
 #
 # =========================================================================================== #
 
@@ -33,7 +33,7 @@ all_systems = [
   {
     region   = "us_east_1"
     hostname = "tcnaw-nessus01"
-    # The ratified availability-zone spec lock, and a subnet in this account's only VPC.
+    # The availability-zone spec lock, and a subnet in this account's only VPC.
     availability_zone = "us-east-1c"
     subnet_id         = "subnet-03a855e712be7b399"
     # The framework CONSUMES key pairs and never creates them, so this names the standing
@@ -41,22 +41,28 @@ all_systems = [
     # lives only in the AWS_EC2_SSH_PRIVATE_KEY organization secret and the runner's
     # temporary directory.
     key_name = "nwarila-ec2-key"
-    # The org EC2 baseline plus read-only access to the application repository bucket, which is
-    # what lets this host pull its own repository contents down rather than receiving them from
-    # the controller. The runner role only reads and passes whichever profile is named here.
+    # The org EC2 baseline plus read-only access to the application repository bucket. The
+    # scanner needs nothing from that bucket at runtime -- the controller fetches the installer
+    # and hands the guest a verified copy -- but it is the same profile the fleet's other
+    # repository-built hosts run as, and SSM through AmazonSSMManagedInstanceCore is the
+    # administrator's backup connection. The runner role only reads and passes it.
     iam_instance_profile = "nwarila-ec2-apprepo-profile"
     aws_kms_alias        = "aws/ebs"
-    # CIS Red Hat Enterprise Linux 8 — the same hardened base the secure-wazuh Linux legs use.
+    # CIS Red Hat Enterprise Linux 8 Benchmark - STIG - v07 (owner 679593333241): the hardened
+    # base the secure-wazuh Linux legs are proven on. FIPS mode, fapolicyd, firewalld, SELinux
+    # enforcing, and noexec /tmp, /var/tmp and /home are all in force on it; the nessus_scanner
+    # role is written against each.
     ami = "ami-0ca8a2e788e4c5869"
     # No standalone data volumes yet, so the OS instance is not swap-eligible; a future
-    # persistent deployment declares its data volumes below and flips this to true.
+    # persistent deployment gives /opt/nessus a volume of its own and flips this to true.
     refresh = false
-    # Starting size for the application proof; resize when the application's real footprint
-    # is measured.
-    instance_type = "t3.medium"
+    # Nessus compiles its full plugin set on first start; Tenable's floor is 4 GiB of memory with
+    # 8 GiB recommended, and the compile is the long pole of a converge. t3.large is 2 vCPUs and
+    # 8 GiB.
+    instance_type = "t3.large"
     # Direct SSH reaches the launch-time public IPv4 through the runner-scoped framework SG.
     connection_type = "ssh"
-    readiness_user  = "ec2-user"
+    readiness_user  = null
 
     readiness_gate             = false
     readiness_command          = null
@@ -70,6 +76,8 @@ all_systems = [
       Backup   = false
     }
 
+    # The image's root is 15 GiB; 50 gives the plugin set room on the filesystem that holds
+    # /opt. The role measures the space before registration rather than assuming it.
     root_block_device = {
       delete_on_termination = true
       iops                  = null
@@ -104,23 +112,16 @@ all_systems = [
         private_ip      = null
         security_groups = []
         ingress         = []
+        # HTTPS is the only way out the scanner needs: the RHEL update service, Tenable's
+        # registration and plugin feed. The VPC resolver and time service are link-local and
+        # never pass through a security group. A scan of the private network needs its own
+        # route and egress; nothing here claims one.
         egress = [
           {
             description                  = "HTTPS out"
             ip_protocol                  = "tcp"
             from_port                    = 443
             to_port                      = 443
-            cidr_ipv4                    = "0.0.0.0/0"
-            prefix_list_id               = null
-            referenced_security_group_id = null
-          },
-          # The VPN tunnel that carries the host onto the private network. Scoped by port rather
-          # than by address: the profile names its endpoint by DNS, and that address changes.
-          {
-            description                  = "OpenVPN tunnel out"
-            ip_protocol                  = "udp"
-            from_port                    = 1194
-            to_port                      = 1194
             cidr_ipv4                    = "0.0.0.0/0"
             prefix_list_id               = null
             referenced_security_group_id = null

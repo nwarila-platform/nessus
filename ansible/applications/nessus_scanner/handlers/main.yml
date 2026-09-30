@@ -1,0 +1,21 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/handlers/main.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# The scanner reads its listener, TLS floor and certificate once, at start. Tasks in
+# present_redhat.yml write those, and none takes effect until the service restarts, so each
+# notifies this handler rather than a result a growing condition would have to test.
+#
+# A handler runs once however many times it was notified: a converge that moves a setting AND
+# imports a certificate restarts the service exactly once, and a converge that changes neither
+# never restarts it. present_redhat.yml flushes it before registration, so the readiness wait
+# that follows judges the restarted service.
+#
+# =========================================================================================== #
+---
+- name: 'Restart the Nessus scanner service'
+  listen: 'nessus-restart-required'
+
+  ansible.builtin.systemd_service:
+    name: "{{ nessus_scanner_running.service_name }}"
+    state: 'restarted'

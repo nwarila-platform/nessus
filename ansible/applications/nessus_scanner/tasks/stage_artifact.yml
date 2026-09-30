@@ -1,0 +1,115 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/tasks/stage_artifact.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Moves one pinned S3 object onto the guest: the CONTROLLER fetches it with its own AWS
+# credentials, so the guest is never given any, and the copy is verified against its pinned
+# SHA-256 on both sides -- the controller's copy before it is shipped, the guest's copy because
+# that is the one that gets used.
+#
+# Staging into the loader's temporary directories is not a change to the host, so nothing here
+# reports 'changed'. The caller supplies, as include vars:
+#   __nessus_scanner_artifact_bucket__   S3 bucket
+#   __nessus_scanner_artifact_key__      S3 key
+#   __nessus_scanner_artifact_sha256__   lowercase 64-hex digest of the stored bytes
+#   __nessus_scanner_artifact_file__     file name to stage it as, on both sides
+#
+# =========================================================================================== #
+---
+#region ------ [ Process: Fetch To The Controller ] ----------------------------------------- #
+# The module probes the BUCKET before the object, and that probe is authorized by a bucket-level
+# grant this deployment deliberately does not hold: reading pinned objects must not imply the
+# right to list the bucket. Skipping the probe is the module's documented answer for exactly that
+# policy shape. A missing object still fails loudly -- the key check uses head_object, which the
+# object-level grant does authorize.
+
+- name: "PROCESS | Fetch To The Controller: {{ __nessus_scanner_artifact_file__ }}"
+  become: false
+  changed_when: false
+  delegate_to: 'localhost'
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+  amazon.aws.s3_object:
+    bucket: "{{ __nessus_scanner_artifact_bucket__ }}"
+    ceph: false
+    debug_botocore_endpoint_logs: false
+    dest: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_artifact_file__ }}"
+    dualstack: false
+    encrypt: true
+    encryption_mode: 'AES256'
+    expiry: 600
+    ignore_nonexistent_bucket: true
+    mode: 'get'
+    object: "{{ __nessus_scanner_artifact_key__ }}"
+    overwrite: 'always'
+    permission: [ 'private' ]
+    prefix: ''
+    purge_tags: true
+    retries: 0
+    sig_v4: true
+    validate_bucket_name: true
+    validate_certs: true
+
+- name: "VERIFY | Read The Controller Copy's Digest: {{ __nessus_scanner_artifact_file__ }}"
+  become: false
+  delegate_to: 'localhost'
+  register: '__nessus_scanner_controller_copy__'
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+  ansible.builtin.stat:
+    checksum_algorithm: 'sha256'
+    get_checksum: true
+    path: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_artifact_file__ }}"
+
+# Fails before a byte is shipped: an object that changed under an unchanged pin stops here.
+- name: "VERIFY | Require The Controller Copy To Match Its Pin: {{ __nessus_scanner_artifact_file__ }}"
+  ansible.builtin.assert:
+    that:
+      - __nessus_scanner_controller_copy__.stat.exists
+      - __nessus_scanner_controller_copy__.stat.checksum == __nessus_scanner_artifact_sha256__
+    fail_msg: >-
+      s3://{{ __nessus_scanner_artifact_bucket__ }}/{{ __nessus_scanner_artifact_key__ }} has
+      sha256 {{ __nessus_scanner_controller_copy__.stat.checksum | default('(missing)') }}, but the
+      playbook pins {{ __nessus_scanner_artifact_sha256__ }}. The stored object changed under an
+      unchanged pin; refusing to ship it.
+    quiet: true
+
+#endregion --- [ Process: Fetch To The Controller ] ----------------------------------------- #
+
+#region ------ [ Process: Copy To The Guest ] ----------------------------------------------- #
+# Into the loader's temporary directory, which it created root-owned and 0700 and removes when
+# the role ends, whatever the outcome.
+
+- name: "PROCESS | Copy To The Guest: {{ __nessus_scanner_artifact_file__ }}"
+  changed_when: false
+
+  ansible.builtin.copy:
+    dest: "{{ __temp_dir__.path }}/{{ __nessus_scanner_artifact_file__ }}"
+    force: true
+    group: 'root'
+    mode: '0600'
+    owner: 'root'
+    src: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_artifact_file__ }}"
+
+- name: "VERIFY | Read The Guest Copy's Digest: {{ __nessus_scanner_artifact_file__ }}"
+  register: '__nessus_scanner_guest_copy__'
+
+  ansible.builtin.stat:
+    checksum_algorithm: 'sha256'
+    get_checksum: true
+    path: "{{ __temp_dir__.path }}/{{ __nessus_scanner_artifact_file__ }}"
+
+- name: "VERIFY | Require The Guest Copy To Match Its Pin: {{ __nessus_scanner_artifact_file__ }}"
+  ansible.builtin.assert:
+    that:
+      - __nessus_scanner_guest_copy__.stat.exists
+      - __nessus_scanner_guest_copy__.stat.checksum == __nessus_scanner_artifact_sha256__
+    fail_msg: >-
+      The copy staged on the guest has sha256
+      {{ __nessus_scanner_guest_copy__.stat.checksum | default('(missing)') }}, but the playbook
+      pins {{ __nessus_scanner_artifact_sha256__ }}. Refusing to use it.
+    quiet: true
+
+#endregion --- [ Process: Copy To The Guest ] ----------------------------------------------- #

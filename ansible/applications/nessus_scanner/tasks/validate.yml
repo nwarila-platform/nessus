@@ -1,0 +1,74 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/tasks/validate.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Validates load-bearing Nessus configuration after the v3 loader merge, on the CONTROLLER,
+# before anything touches the guest. The artifact and secret inputs are supplied by the playbook
+# rather than defaulted, so this is where a missing or malformed one is caught -- in a second,
+# rather than mid-converge at the cost of an instance.
+#
+# No assertion here prints a value: a failure names the input, never what it held.
+#
+# meta/main.yml describes these inputs; this file is what enforces them.
+#
+# =========================================================================================== #
+---
+- name: 'VALIDATE | Require The Inputs Every State Uses'
+  ansible.builtin.assert:
+    that:
+      - nessus_scanner_running.installer.version | default('') is match('^[0-9]+([.][0-9]+){2}$')
+      - nessus_scanner_running.package_name | default('') | length > 0
+      - nessus_scanner_running.service_name | default('') | length > 0
+      - nessus_scanner_running.install_root | default('') is match('^/opt/[A-Za-z0-9._-]+$')
+      - nessus_scanner_running.cli_path | default('') is match('^/')
+      - (nessus_scanner_running.listener.port | default(0) | int) >= 1
+      - (nessus_scanner_running.listener.port | default(0) | int) <= 65535
+      - nessus_scanner_running.signing_key.fingerprint | default('') is match('^[0-9A-F]{40}$')
+    fail_msg: >-
+      Refusing to continue: a three-part installer.version, the product identity, an install_root
+      directly under /opt, a listener.port between 1 and 65535, and a 40-character upper-case
+      signing-key fingerprint are required for every state. See meta/main.yml.
+    quiet: true
+
+- name: 'VALIDATE | Require The Artifact Sources And Secrets'
+  when: (state | default('present') | string | lower | trim) == 'present'
+  ansible.builtin.assert:
+    that:
+      - nessus_scanner_running.installer.bucket | default('') | length > 0
+      - nessus_scanner_running.installer.key | default('') is search('<version>')
+      - nessus_scanner_running.installer.sha256 | default('') is match('^[0-9a-f]{64}$')
+      - nessus_scanner_running.certificate.bucket | default('') | length > 0
+      - nessus_scanner_running.certificate.key | default('') is match('^[^/].*[.]p12$')
+      - nessus_scanner_running.certificate.sha256 | default('') is match('^[0-9a-f]{64}$')
+      # Every secret is one non-empty line once trimmed: the product's command line and OpenSSL
+      # read a secret a line at a time, so an embedded newline would silently truncate it.
+      - nessus_scanner_running.activation_code | default('') | string | trim is match('^[A-Za-z0-9-]{16,64}$')
+      - (nessus_scanner_running.administrator.password | default('') | string | trim | length) >= 12
+      - nessus_scanner_running.administrator.password | default('') | string | trim is not search('[\r\n]')
+      - (nessus_scanner_running.certificate.password | default('') | string | trim | length) >= 8
+      - nessus_scanner_running.certificate.password | default('') | string | trim is not search('[\r\n]')
+      - nessus_scanner_running.administrator.username | default('') is match('^[a-z][a-z0-9_.-]{2,31}$')
+    fail_msg: >-
+      Refusing to deploy: a required input is missing or malformed. The playbook must supply the
+      installer (bucket, a key carrying the <version> token, a lowercase 64-char sha256); the
+      certificate bundle (bucket, a .p12 key, its lowercase 64-char sha256 and its password); an
+      activation code of 16-64 letters, digits and dashes; and an administrator password of at
+      least 12 characters on one line. See meta/main.yml.
+    quiet: true
+
+- name: 'VALIDATE | Require Settings The Command Line Can Carry'
+  when: (state | default('present') | string | lower | trim) == 'present'
+  ansible.builtin.assert:
+    that:
+      - nessus_scanner_running.settings is mapping
+      - nessus_scanner_running.settings | dict2items | map(attribute='key')
+        | reject('match', '^[a-z][a-z0-9_.]*$') | list | length == 0
+      - nessus_scanner_running.settings | dict2items | map(attribute='value') | map('string')
+        | select('search', '[\r\n]') | list | length == 0
+      # The listener port has one source of truth, listener.port, so naming it twice is refused
+      # rather than letting whichever merged last decide.
+      - "'xmlrpc_listen_port' not in nessus_scanner_running.settings"
+    fail_msg: >-
+      Refusing to deploy: settings must be a map of lower-case setting names to single-line
+      values, and must not name xmlrpc_listen_port -- set listener.port instead.
+    quiet: true

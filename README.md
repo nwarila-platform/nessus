@@ -1,2 +1,111 @@
 # nessus
-Infrastructure-as-code deployment and configuration for a Tenable Nessus vulnerability scanner on the nwarila platform.
+
+[![quality](https://github.com/nwarila-platform/nessus/actions/workflows/quality.yml/badge.svg?branch=main)](https://github.com/nwarila-platform/nessus/actions/workflows/quality.yml)
+[![AWS Deploy](https://github.com/nwarila-platform/nessus/actions/workflows/aws-deploy.yml/badge.svg?branch=main)](https://github.com/nwarila-platform/nessus/actions/workflows/aws-deploy.yml)
+
+This repository automates a **Tenable Nessus** vulnerability scanner on a STIG-hardened RHEL 8
+host in an ephemeral AWS environment. Terraform provisions the CIS RHEL 8 STIG image. Ansible then:
+- resolves the image account;
+- bootstraps the Python its modules need;
+- installs the pinned, digest- and signature-verified Nessus RPM;
+- imports an HTTPS certificate the deployment owns;
+- registers the scanner and fetches its plugins;
+- converges its one administrator account.
+
+GitHub Actions proves the result over HTTPS validated against the declared CA and hostname, proves
+a second converge changes nothing, and destroys the environment.
+
+At execution time the `nessus_scanner` role overlays onto a version-pinned
+[`ansible-framework`](https://github.com/nwarila-platform/ansible-framework) checkout. That
+checkout supplies `credential_resolver`, `host_readiness` and `os_bootstrap`, the generic role
+loader, `ansible.cfg` and the lint configuration. This repository follows the fleet's reference
+repository, [`pdq-deploy-inventory`](https://github.com/nwarila-platform/pdq-deploy-inventory):
+same pins, workflows, toolchain and layout. It also carries the `dependencies/` declaration tree
+that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduced.
+
+## What it demonstrates
+
+- **A destroy-by-default lifecycle that proves itself.** Every run provisions, converges, converges
+  again and must report no change, then destroys. See
+  [`aws-deploy.yml`](.github/workflows/aws-deploy.yml).
+- **HTTPS that is proven, not assumed.** The certificate is a password-protected PKCS#12 bundle
+  this repository mints. The role decodes it with the host's FIPS-validated OpenSSL, checks it as a
+  set, and imports it. The readiness wait then trusts *only* the declared CA and connects by the
+  name the certificate carries, and the served leaf's fingerprint must equal the declared one.
+- **Written for a hardened host.** FIPS mode, fapolicyd, `noexec` temporary directories, enforced
+  local-package signature checks and firewalld are all live on the target, and every step is
+  shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
+- **No stored cloud keys.** GitHub OIDC only, gated to protected `main`, with a separate tag-scoped
+  cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest never
+  receives cloud credentials: the controller fetches every object and hands it a verified copy.
+- **Declared dependencies.** [`dependencies/`](dependencies/) records the IAM, artifacts and secrets
+  the deployment depends on. A credential-free validator proves they are closed, tokenized, and in
+  agreement with what the playbook consumes.
+
+```mermaid
+flowchart LR
+  gha[GitHub Actions] -- OIDC --> aws[AWS]
+  gha --> tf[Terraform<br/>pinned framework]
+  tf --> host[RHEL 8 STIG host]
+  gha --> play[Ansible<br/>composed play]
+  s3[(S3: installer, HTTPS bundle,<br/>activation code, secrets)] --> play
+  play --> host
+  host -- registers, fetches plugins --> tenable[(Tenable)]
+```
+
+## How it runs
+
+The `aws-deploy` workflow owns the lifecycle:
+1. Terraform provisions the host.
+2. The composed [`nessus-aws.yml`](ansible/playbooks/nessus-aws.yml) play converges it.
+3. An **idempotency gate** proves a second converge reports `changed=0`.
+4. Terraform destroys the host.
+
+A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
+it recurs. `workflow_dispatch` adds three inputs:
+- `hold_minutes` keeps the scanner up for interactive work;
+- `absent_proof` proves `state=absent` removes it idempotently;
+- `skip_products` builds the host alone.
+
+A held scanner is reachable from the operator address the `AWS_DEBUG_HOSTNAME` secret names:
+
+```bash
+ssh -L 8834:localhost:8834 ec2-user@<public IPv4>
+# then browse https://localhost:8834, trusting the CA from scripts/mint-nessus-https.sh
+```
+
+Locally, `scripts/compose-and-run.sh` builds the same composed tree and runs the play, and
+`scripts/converge-held-bed.sh` converges a bed a workflow run is holding.
+
+## What must exist before a deploy
+
+| Object | Where | Made by |
+|---|---|---|
+| Nessus RPM | `s3://<account-id>-apprepo/Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm` | Tenable's download, verified against the pinned SHA-256 |
+| HTTPS bundle and its password | `s3://<account-id>-ansible/applications/nessus/nessus-https.p12`, `…/nessus-https-p12-password.txt` | `scripts/mint-nessus-https.sh`; its digest is pinned in the playbook |
+| Activation code | `s3://<account-id>-ansible/applications/nessus/activation-code.txt` | Tenable |
+| Administrator password | `s3://<account-id>-ansible/applications/nessus/administrator-password.txt` | One line, at least 12 characters |
+| Runner read grant | `nwarila-platform_nessus_runner_s3` v2 | Applied 2026-09-30 from [`dependencies/aws/`](dependencies/) |
+
+The `nwarila-platform_nessus_admin` role can write everything under
+`applications/nessus/`.
+
+## Layout
+
+| Path | Purpose |
+|---|---|
+| `ansible/applications/nessus_scanner/` | The Nessus application role |
+| `ansible/playbooks/nessus-aws.yml` | Composed play: inventory contract, credential resolution, readiness, bootstrap, then the scanner |
+| `ansible/inventory/aws_ec2.yml` | Dynamic AWS inventory (filters this run's instance by tag) |
+| `terraform/aws.tfvars` | Data-only input to the pinned aws-terraform-framework (no `.tf` files here) |
+| `dependencies/` | The AWS estate, artifacts and secrets this repository depends on, validated by `scripts/check-dependencies.py` |
+| `scripts/` | Composition, script materialization, the HTTPS minting script and the dependency validator |
+| `docs/TECH-DEBT.md` | Current engineering debt |
+
+## Status
+
+The role has not yet converged on AWS end to end. The installer, the HTTPS bundle, the
+administrator password and the runner grant are in place (2026-09-30); the first run waits only on
+the activation code. The install, the settings store, the scripted account creation, API sign-in, and the
+PKCS#12 decode (including under forced FIPS mode), import and validated HTTPS were each measured
+on RHEL 8.10 on 2026-09-30. Pinned product version: 10.12.4.
