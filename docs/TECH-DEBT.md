@@ -24,23 +24,22 @@
 - **Exit criteria:** a scan target is built beside the scanner, the scanner reaches it, and the
   pipeline proves a completed scan of it through the API.
 
-## TD-003 — CLOSING — `/opt/nessus` is its own data volume; the AWS OS-swap proof is outstanding
+## TD-003 — CLOSED 2026-09-30 — `/opt/nessus` is its own data volume
 
-- **Recorded:** 2026-09-30. **Implemented:** 2026-09-30.
+- **Recorded and closed:** 2026-09-30.
 - **Original issue:** plugins, scan results and the imported certificate lived under `/opt/nessus`
   on the root filesystem of an ephemeral OS disk, so nothing survived an OS replacement.
-- **Implemented:**
-  - `terraform/aws.tfvars` declares a standalone `Function=NESSUS` volume and `refresh = true`.
-  - `linux_disk_manager` mounts that volume at `/opt/nessus` and adopts it without reformatting.
-  - `aws-deploy` gained the opt-in `os_swap` proof.
-- **Evidence so far:** a rehearsal on RHEL 8.10 moved the volume between two machines with
-  different hostnames and machine-ids, using the framework's disk role itself. The disk was
-  adopted unformatted. The installation UUID, the account and its password, the settings and the
-  served certificate carried over. The only changes were the package, key and service on the new
-  OS disk.
-- **Exit criteria:** an `aws-deploy` dispatch with `os_swap=true` passes. It must read back the
-  database record written before the replacement, and its post-swap converge must report
-  `changed=0`.
+- **Closure evidence:**
+  - Run 36773018135 converged green onto a standalone `Function=NESSUS` volume mounted at
+    `/opt/nessus` by `linux_disk_manager`, and its second converge reported `changed=0`.
+  - Run 36779428440 seeded a new instance's volume from that run's snapshot. The disk was adopted
+    unformatted and the package reinstalled. The settings, certificate and account were found
+    intact: none rewritten, re-imported or re-created.
+  - The lab rehearsal showed the same when the volume moved between machines with different
+    hostnames and machine-ids.
+- **What remains is licensing, not the volume.** An `os_swap` run cannot yet pass end to end,
+  because the replacement machine must register again and an Essentials code registers once
+  (TD-007).
 
 ## TD-004 — OPEN — `disable_core_updates` is declared but proven only by its effect
 
@@ -75,17 +74,17 @@
 - **Exit criteria:** the first script pair lands under `scripts/` together with the reference
   `powershell.yml`, byte-identical to the reference, and its matrix passes.
 
-## TD-007 — OPEN — a Nessus Essentials code registers one scanner, once
+## TD-007 — OPEN — a Nessus Essentials code registers one scanner, once, and registrations are machine-bound
 
 - **Recorded:** 2026-09-30.
 - **Issue:** the licence is Nessus Essentials: 5 IPs, one account. Its activation code registers
-  exactly one scanner. The second registration of the same code was refused with HTTP 400 (run
-  36763608707). The reference lifecycle registers a brand-new scanner on every deploy-input push
-  and every week, so each such run needs a fresh code, and a run without one goes red at
-  registration, by name.
-- **Decision (2026-09-30):** keep the ephemeral lifecycle and supply a fresh code per run.
-  `preserve_data` carries the scanner's data between runs, but whether a preserved registration
-  survives a new machine is decided by Tenable, not by this repository.
-- **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), or
-  a proven preserved registration that survives a new machine, so that ordinary runs stop
-  consuming codes.
+  exactly one scanner; a second registration of the same code was refused with HTTP 400 (runs
+  36763608707 and 36779428440). Tenable also binds a registration to the machine: a preserved
+  scanner on a new instance reports itself unregistered (run 36779428440). So every new
+  machine — every run, and every OS-drive replacement — needs a fresh code, and a run without
+  one goes red at registration, by name.
+- **Decision (2026-09-30):** keep the ephemeral lifecycle; the owner supplies a fresh code per
+  registering run. `preserve_data` carries everything else between runs.
+- **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), so
+  that ordinary runs and OS-drive replacements stop consuming codes, and an `os_swap` run passes
+  end to end.
