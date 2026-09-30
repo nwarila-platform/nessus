@@ -82,6 +82,28 @@
     # the inventory names for every later module, over raw, before any module runs.
     - role: 'os_bootstrap'
 
+    # The scanner's whole install root lives on its own standalone EBS volume -- binaries,
+    # plugins, settings, certificates, users and scan data -- so the OS disk can be replaced
+    # (refresh_serial) while the volume detaches and re-attaches to the replacement. Tenable's
+    # supported way to move a scanner's data is to move /opt/nessus as a whole, so that is the
+    # unit. The Function tag is the identity the volume is resolved by, never a device name; an
+    # already-labelled volume is adopted without reformatting. Removing the scanner does not
+    # justify touching the disk that holds it.
+    - role: 'linux_disk_manager'
+      when: (state | default('present') | string | lower | trim) != 'absent'
+      vars:
+        # The resolver filters volumes by this host's instance id. The inventory publishes it as
+        # aws_instance_id (hostvars_prefix), and ansible_host is an address, not an id.
+        instance_id: "{{ aws_instance_id }}"
+        linux_disk_manager:
+          platform: 'aws'
+          disks:
+            - function: 'NESSUS'
+              mount_point: '/opt/nessus'
+              label: 'NESSUS'
+              fstype: 'xfs'
+              opts: 'defaults,nodev,nosuid'
+
   #endregion --- [ Roles ] -------------------------------------------------------------------- #
 
 #endregion --- [ Play: Prepare The Hosts ] ---------------------------------------------------- #
@@ -136,3 +158,111 @@
   #endregion --- [ Roles ] -------------------------------------------------------------------- #
 
 #endregion --- [ Play: Nessus Scanner ] ------------------------------------------------------- #
+
+#region ------ [ Play: Data Volume Proof (opt-in) ] ------------------------------------------- #
+# Proves the scanner resumes on its OWN DATA after the OS disk is replaced: 'mark' writes a
+# record into Nessus's database (a scan folder) before the replacement, 'verify' reads it back
+# after. The record exists only in the database on the data volume, so reading it back proves
+# the volume moved AND that Nessus opened its existing database rather than a new one.
+#
+# Tagged 'never', so an ordinary converge never runs it; the workflow asks for it by tag, with
+# nessus_data_proof set to 'mark' or 'verify' and nessus_data_proof_marker naming the record.
+
+- name: 'PLAY | Prove The Scanner Resumes On Its Data Volume (opt-in)'
+  hosts: 'nessus_servers'
+  any_errors_fatal: true
+  become: true
+  tags: ['never', 'nessus_data_proof']
+  vars:
+    nessus_secret_prefix: "s3://{{ aws_account_id }}-ansible/applications/nessus"
+    __proof_url__: 'https://localhost:8834'
+    # The CA the listener serves -- the role proved it equals the declared CA on its last converge.
+    __proof_ca__: '/opt/nessus/com/nessus/CA/cacert.pem'
+    __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker | default('') }}"
+
+  tasks:
+    - name: 'VERIFY | Require A Proof Action And Marker'
+      ansible.builtin.assert:
+        that:
+          - nessus_data_proof | default('') in ['mark', 'verify']
+          - nessus_data_proof_marker | default('') is match('^[A-Za-z0-9-]{1,40}$')
+        fail_msg: >-
+          Pass nessus_data_proof=mark|verify and nessus_data_proof_marker (letters, digits and
+          dashes) as extra-vars.
+        quiet: true
+
+    - name: 'BEGIN | Sign In As The Administrator'
+      no_log: true
+      register: '__proof_session__'
+
+      ansible.builtin.uri:
+        body:
+          username: 'nessusadmin'
+          password: >-
+            {{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') | trim }}
+        body_format: 'json'
+        ca_path: "{{ __proof_ca__ }}"
+        method: 'POST'
+        return_content: true
+        status_code: [ 200 ]
+        timeout: 30
+        url: "{{ __proof_url__ }}/session"
+        validate_certs: true
+
+    - name: 'PROCESS | Write The Proof Record Before The OS Is Replaced'
+      when: nessus_data_proof == 'mark'
+      no_log: true
+
+      ansible.builtin.uri:
+        body:
+          name: "{{ __proof_folder__ }}"
+        body_format: 'json'
+        ca_path: "{{ __proof_ca__ }}"
+        headers:
+          X-Cookie: "token={{ __proof_session__.json.token }}"
+        method: 'POST'
+        status_code: [ 200 ]
+        timeout: 30
+        url: "{{ __proof_url__ }}/folders"
+        validate_certs: true
+
+    - name: 'BEGIN | Read The Records Nessus Holds'
+      no_log: true
+      register: '__proof_folders__'
+
+      ansible.builtin.uri:
+        ca_path: "{{ __proof_ca__ }}"
+        headers:
+          X-Cookie: "token={{ __proof_session__.json.token }}"
+        method: 'GET'
+        return_content: true
+        status_code: [ 200 ]
+        timeout: 30
+        url: "{{ __proof_url__ }}/folders"
+        validate_certs: true
+
+    - name: 'VERIFY | Require The Proof Record In The Scanner Database'
+      ansible.builtin.assert:
+        that: __proof_folder__ in (__proof_folders__.json.folders | map(attribute='name') | list)
+        fail_msg: >-
+          Nessus's database does not hold '{{ __proof_folder__ }}'
+          ({{ nessus_data_proof }}): it holds
+          {{ __proof_folders__.json.folders | map(attribute='name') | list }}.
+        quiet: true
+
+    - name: 'CLEANUP | Sign Out'
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+      ansible.builtin.uri:
+        ca_path: "{{ __proof_ca__ }}"
+        headers:
+          X-Cookie: "token={{ __proof_session__.json.token }}"
+        method: 'DELETE'
+        status_code: [ 200 ]
+        timeout: 30
+        url: "{{ __proof_url__ }}/session"
+        validate_certs: true
+
+#endregion --- [ Play: Data Volume Proof (opt-in) ] ------------------------------------------- #

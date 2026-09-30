@@ -6,8 +6,9 @@ input that shapes them.
 
 - `aws.tfvars` is the system declaration the framework consumes verbatim. It pins the availability
   zone, subnet, instance type, AMI (CIS RHEL 8 STIG), key pair, instance profile, disk layout,
-  network interface and egress. The OS instance is not swap-eligible (`refresh = false`) until
-  `/opt/nessus` gets a persistent data volume of its own.
+  network interface and egress. `/opt/nessus` is a standalone data volume (`Function=NESSUS`), and
+  the OS instance is swap-eligible (`refresh = true`): bumping `refresh_serial` replaces it while
+  that volume re-attaches to the replacement.
 - The framework SHA is pinned in `.github/terraform-framework-pin`.
 
 `.github/workflows/aws-deploy.yml` checks the framework out at that pin, runs Terraform from

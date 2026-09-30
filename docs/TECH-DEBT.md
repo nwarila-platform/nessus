@@ -24,15 +24,23 @@
 - **Exit criteria:** a scan target is built beside the scanner, the scanner reaches it, and the
   pipeline proves a completed scan of it through the API.
 
-## TD-003 — OPEN — `/opt/nessus` shares the root filesystem
+## TD-003 — CLOSING — `/opt/nessus` is its own data volume; the AWS OS-swap proof is outstanding
 
-- **Recorded:** 2026-09-30.
-- **Issue:** plugins, scan results and the imported certificate live under `/opt/nessus` on the
-  root filesystem of an ephemeral OS disk. The role measures free space before registration, but
-  nothing survives an OS replacement.
-- **Exit criteria:** `/opt/nessus` is a standalone data volume placed by `linux_disk_manager`,
-  `refresh = true` in `terraform/aws.tfvars`, and an `os_swap` proof reconverges onto it with the
-  registration and scan history intact.
+- **Recorded:** 2026-09-30. **Implemented:** 2026-09-30.
+- **Original issue:** plugins, scan results and the imported certificate lived under `/opt/nessus`
+  on the root filesystem of an ephemeral OS disk, so nothing survived an OS replacement.
+- **Implemented:**
+  - `terraform/aws.tfvars` declares a standalone `Function=NESSUS` volume and `refresh = true`.
+  - `linux_disk_manager` mounts that volume at `/opt/nessus` and adopts it without reformatting.
+  - `aws-deploy` gained the opt-in `os_swap` proof.
+- **Evidence so far:** a rehearsal on RHEL 8.10 moved the volume between two machines with
+  different hostnames and machine-ids, using the framework's disk role itself. The disk was
+  adopted unformatted. The installation UUID, the account and its password, the settings and the
+  served certificate carried over. The only changes were the package, key and service on the new
+  OS disk.
+- **Exit criteria:** an `aws-deploy` dispatch with `os_swap=true` passes. It must read back the
+  database record written before the replacement, and its post-swap converge must report
+  `changed=0`.
 
 ## TD-004 — OPEN — `disable_core_updates` is declared but proven only by its effect
 

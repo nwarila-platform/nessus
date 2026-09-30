@@ -62,6 +62,41 @@
 
     #endregion --- [ Begin: Create The Controller Staging Directory ] ----------------------- #
 
+    #region ------ [ Process: 00 Label The Install Root ] ----------------------------------- #
+    # The install root is normally its own data volume, mounted by linux_disk_manager so the
+    # scanner's data outlives the OS disk. A filesystem made for it carries no SELinux labels,
+    # and the mount point then shows that filesystem's unlabelled root rather than the label
+    # policy expects there. restorecon applies policy's labels and prints only what it changed,
+    # so a volume already labelled -- every converge after the first, and a volume re-attached
+    # to a replacement OS -- reports no change.
+
+    - name: 'BEGIN | Read Whether SELinux Is Enabled'
+      changed_when: false
+      failed_when: false
+      register: '__nessus_scanner_selinux__'
+
+      ansible.builtin.command:
+        argv: [ 'selinuxenabled' ]
+
+    - name: 'BEGIN | Read Whether The Install Root Exists'
+      register: '__nessus_scanner_root__'
+
+      ansible.builtin.stat:
+        get_checksum: false
+        path: "{{ nessus_scanner_running.install_root }}"
+
+    - name: 'PROCESS | Apply The SELinux Labels Under The Install Root'
+      changed_when: __nessus_scanner_relabel__.stdout | length > 0
+      register: '__nessus_scanner_relabel__'
+      when:
+        - __nessus_scanner_selinux__.rc == 0
+        - __nessus_scanner_root__.stat.exists
+
+      ansible.builtin.command:
+        argv: [ 'restorecon', '-R', '-v', "{{ nessus_scanner_running.install_root }}" ]
+
+    #endregion --- [ Process: 00 Label The Install Root ] ----------------------------------- #
+
     #region ------ [ Process: 01 Trust The Vendor Signing Key ] ----------------------------- #
     # RPM records an imported key as gpg-pubkey-<last 8 hex of the fingerprint>; asking for that
     # name is how a converged host skips the import. rpm_key then refuses the shipped key unless

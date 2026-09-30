@@ -19,6 +19,25 @@ registered scanner serving HTTPS with a certificate the deployment owns. In one 
 
 Every step reads before it writes, so a converged host reports no change.
 
+## Data volume
+
+The role treats its install root, `/opt/nessus`, as the unit of the scanner's data: binaries,
+plugins, settings, certificates, accounts and scan results. In the composed play it is its own
+volume, mounted there by `linux_disk_manager` before this role runs, so the OS disk can be
+replaced underneath it. On a replacement OS the role:
+- reinstalls the package over the preserved tree;
+- finds the settings, certificate and account already in place, and writes none of them;
+- re-registers only if the registration did not survive the new machine.
+
+An OS-swap rehearsal on RHEL 8.10 on 2026-09-30 moved the volume to a machine with a different
+hostname and machine-id. The installation UUID, the account and its password, the settings and
+the served certificate all carried over. The only changes were the package, the signing key and
+the service, which live on the OS disk.
+
+`restorecon` labels the install root on every converge and changes only what policy disagrees
+with, because a filesystem made for it starts unlabelled. `state=absent` empties the install root
+rather than removing it, because the mount point is the disk role's.
+
 ## HTTPS
 
 The certificate is ONE password-protected PKCS#12 bundle: the server key, the server certificate
