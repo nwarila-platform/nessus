@@ -11,11 +11,15 @@ registered scanner serving HTTPS with a certificate the deployment owns. In one 
 4. admits the listener in every active firewalld zone;
 5. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
    certificate and CA as a set, and imports them into Nessus when what it serves differs;
-6. registers the scanner with its activation code and fetches the plugins;
-7. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**;
-8. converges the one administrator account and proves it by signing in to the API;
-9. verifies the result against the machine: the installed version, the service, the
-   registration, and the fingerprint of the certificate the listener actually serves.
+6. creates the one administrator account from the command line, **before** registration, because
+   the web tier reads whether setup is complete when the service starts;
+7. registers the scanner with its activation code and fetches the plugins;
+8. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**,
+   restarting once if a registered scanner settles on a stale `register` state (measured
+   2026-09-30);
+9. proves the account by signing in to the API, converging its password if it moved;
+10. verifies the result against the machine: the installed version, the service, the
+    registration, and the fingerprint of the certificate the listener actually serves.
 
 Every step reads before it writes, so a converged host reports no change.
 
