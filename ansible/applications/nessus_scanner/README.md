@@ -181,8 +181,7 @@ The role never trusts the certificate on its word:
   fingerprint.
 
 The plaintext key exists only between decoding and import: it is removed once the import is done,
-again under END's `always`, and with the loader's temporary directory when the role ends, whatever
-the outcome.
+and if PROCESS fails before then, with the loader's temporary directory when the role ends.
 
 ### Why the bundle is AES-256 and not the PKCS#12 default of older tools
 
@@ -238,12 +237,13 @@ unproven, because the lab replaces the fetch.
   an existing identity (an adopted volume, or a version change in place), `var/nessus/uuid` and
   `var/nessus/master.key` are read before and after it and must come through byte for byte, or the
   converge fails naming the file.
-- **Cleanup is tidiness, not recovery.** Cleanup lives under END's `always`, and an unrescued
-  PROCESS failure skips END, so the controller's staging directory under `/tmp` is the accepted
-  residue. The loader removes its guest temporary directory, and with it any decoded key, whatever
-  the outcome. PROCESS carries an `always` of its own for one thing only: applying a restart a
-  change already notified, so a failed converge does not leave Nessus running its old
-  configuration.
+- **Cleanup is tidiness, not recovery, except for the key material.** The controller's staging
+  directory holds the certificate bundle, so it is removed in PROCESS's `always`, whether PROCESS
+  succeeds or fails, before any pending restart is applied; a run from a workstation is not
+  ephemeral. The loader removes its guest temporary directory, and with it any decoded key,
+  whatever the outcome. The rest of PROCESS's `always` applies a restart a change already notified,
+  so a failed converge does not leave Nessus running its old configuration. END's `always` signs
+  out; an unrescued PROCESS failure skips END.
 
 ## Verification
 
