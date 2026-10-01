@@ -73,7 +73,7 @@ On every converge the role:
   silently;
 - writes only the settings whose value differs, treating `yes`/`no` and `true`/`false` as equal
   because Nessus reports booleans both ways;
-- reads every setting back and requires each to hold its declared value;
+- reads back each setting it wrote and requires it to hold its declared value;
 - names any setting Nessus has that the declaration lacks, which is how a version bump shows up.
 
 `~` leaves a setting to Nessus. Six are left that way by default: five that Nessus computes from

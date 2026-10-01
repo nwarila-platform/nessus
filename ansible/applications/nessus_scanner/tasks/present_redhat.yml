@@ -202,18 +202,108 @@
               'in use': 'The data volume holds the scanner this OS already runs.'}
              [__nessus_scanner_data_action__] }}
 
-    - name: 'PROCESS | Stage The Installer'
+    # The controller fetches it with its own AWS credentials, so the guest is never given any.
+    # The module probes the BUCKET before the object, and that probe is authorized by a bucket-
+    # level grant this deployment deliberately does not hold: reading pinned objects must not
+    # imply the right to see the bucket. Skipping the probe is the module's documented answer for
+    # exactly that policy shape. A missing object still fails loudly -- the key check uses
+    # head_object, which the object-level grant does authorize.
+    - name: 'PROCESS | Fetch The Installer To The Controller'
+      become: false
+      changed_when: false
+      delegate_to: 'localhost'
       when: __nessus_scanner_install_required__ | bool
       vars:
-        __nessus_scanner_artifact_bucket__: "{{ nessus_scanner_running.installer.bucket }}"
-        __nessus_scanner_artifact_key__: >-
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+      amazon.aws.s3_object:
+        bucket: "{{ nessus_scanner_running.installer.bucket }}"
+        ceph: false
+        debug_botocore_endpoint_logs: false
+        dest: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_rpm__ }}"
+        dualstack: false
+        encrypt: true
+        encryption_mode: 'AES256'
+        expiry: 600
+        ignore_nonexistent_bucket: true
+        mode: 'get'
+        object: >-
           {{ nessus_scanner_running.installer.key
              | replace('<version>', nessus_scanner_running.installer.version) }}
-        __nessus_scanner_artifact_sha256__: "{{ nessus_scanner_running.installer.sha256 }}"
-        __nessus_scanner_artifact_file__: "{{ __nessus_scanner_rpm__ }}"
+        overwrite: 'different'
+        permission: [ 'private' ]
+        prefix: ''
+        purge_tags: true
+        retries: 0
+        sig_v4: true
+        validate_bucket_name: true
+        validate_certs: true
 
-      ansible.builtin.include_tasks:
-        file: 'stage_artifact.yml'
+    - name: 'VERIFY | Read The Controller Copy Of The Installer'
+      become: false
+      delegate_to: 'localhost'
+      register: '__nessus_scanner_installer_controller__'
+      when: __nessus_scanner_install_required__ | bool
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_rpm__ }}"
+
+    # Fails before a byte is shipped: an object that changed under an unchanged pin stops here.
+    - name: 'VERIFY | Require The Controller Copy Of The Installer To Match Its Pin'
+      when: __nessus_scanner_install_required__ | bool
+      ansible.builtin.assert:
+        that:
+          - __nessus_scanner_installer_controller__.stat.exists
+          - __nessus_scanner_installer_controller__.stat.checksum
+            == nessus_scanner_running.installer.sha256
+        fail_msg: >-
+          The stored installer has sha256
+          {{ __nessus_scanner_installer_controller__.stat.checksum | default('(missing)') }},
+          but the playbook pins {{ nessus_scanner_running.installer.sha256 }}.
+          The object changed under an unchanged pin; refusing to ship it.
+        quiet: true
+
+    # Into the loader's temporary directory, which it created root-owned and 0700 and removes
+    # when the role ends, whatever the outcome.
+    - name: 'PROCESS | Copy The Installer To The Guest'
+      changed_when: false
+      when: __nessus_scanner_install_required__ | bool
+
+      ansible.builtin.copy:
+        dest: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_rpm__ }}"
+
+    # Verified again on the guest, because that copy is the one used.
+    - name: 'VERIFY | Read The Guest Copy Of The Installer'
+      register: '__nessus_scanner_installer_guest__'
+      when: __nessus_scanner_install_required__ | bool
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
+
+    - name: 'VERIFY | Require The Guest Copy Of The Installer To Match Its Pin'
+      when: __nessus_scanner_install_required__ | bool
+      ansible.builtin.assert:
+        that:
+          - __nessus_scanner_installer_guest__.stat.exists
+          - __nessus_scanner_installer_guest__.stat.checksum
+            == nessus_scanner_running.installer.sha256
+        fail_msg: >-
+          The installer copied to the guest has sha256
+          {{ __nessus_scanner_installer_guest__.stat.checksum | default('(missing)') }},
+          but the playbook pins {{ nessus_scanner_running.installer.sha256 }}.
+          Refusing to use it.
+        quiet: true
 
     - name: 'VERIFY | Read The Installer Signature'
       changed_when: false
@@ -370,14 +460,72 @@
 
     #region ------ [ Process: 04 Converge Every Setting ] ------------------------------------ #
     # Every setting this Nessus has is declared: the role's defaults name each one at the
-    # product's own value, the playbook overrides any of them by name, and ~ leaves one to Nessus.
-    # 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a real one),
-    # so a declared name this Nessus does not have is refused here instead of being kept silently.
-    # Read once; write only what differs; read back.
+    # product's own value, the playbook overrides any of them by name, and ~ leaves one to
+    # Nessus. 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a
+    # real one), so a declared name this Nessus does not have is refused here instead of being
+    # kept silently. Read once; write only what differs; read back what was written.
+    #
+    # Two reads answer every comparison. 'fix --show' is the product's own catalogue: every
+    # setting it knows and its effective value, defaults included. 'fix --list' is its store:
+    # what has been written, including the few settings it stores at install without
+    # cataloguing. A stored value wins over a shown one, and booleans compare by meaning,
+    # because the catalogue reports true/false where the store holds yes/no for one setting.
 
-    - name: 'BEGIN | Read Every Setting'
-      ansible.builtin.include_tasks:
-        file: 'read_settings.yml'
+    - name: 'BEGIN | Read The Settings Catalogue'
+      changed_when: false
+      register: '__nessus_scanner_catalogue__'
+
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--show' ]
+
+    - name: 'BEGIN | Read The Stored Settings'
+      changed_when: false
+      register: '__nessus_scanner_store__'
+
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--list' ]
+
+    # Each side becomes 'name=value' strings, so the comparison is one set difference. Every
+    # managed name is padded in with an empty value first, so a setting Nessus does not report
+    # reads as empty rather than failing the lookup.
+    - name: 'BEGIN | Record Which Managed Settings Differ'
+      vars:
+        # A setting the vendor has deprecated prints a '- Deprecated' line (or 'Deprecated by
+        # <name>') between its name and its value, and an empty display name; it is still one.
+        __marker__: '(?:    - Deprecated[^\n]*\n)?'
+        __shown_names__: >-
+          {{ __nessus_scanner_catalogue__.stdout
+             | regex_findall('(?m)^  [*] .*[(]([^()]+)[)]\n' ~ __marker__
+                             ~ '    - Current value: ?.*$') }}
+        __shown_values__: >-
+          {{ __nessus_scanner_catalogue__.stdout
+             | regex_findall('(?m)^  [*] .*[(][^()]+[)]\n' ~ __marker__
+                             ~ '    - Current value: ?(.*)$') }}
+        __stored_names__: >-
+          {{ __nessus_scanner_store__.stdout | regex_findall('(?m)^([a-z0-9_.]+): ?.*$') }}
+        __stored_values__: >-
+          {{ __nessus_scanner_store__.stdout | regex_findall('(?m)^[a-z0-9_.]+: ?(.*)$') }}
+        __names__: "{{ __nessus_scanner_managed__ | list }}"
+        __effective__: >-
+          {{ dict(__names__ | zip(__names__ | map('regex_replace', '^.*$', '')))
+             | combine(dict(__shown_names__ | zip(__shown_values__)),
+                       dict(__stored_names__ | zip(__stored_values__))) }}
+        __want__: >-
+          {{ __names__
+             | zip(__names__ | map('extract', __nessus_scanner_managed__) | map('string'))
+             | map('join', '=') | map('regex_replace', '(?i)=(true|yes)$', '=yes')
+             | map('regex_replace', '(?i)=(false|no)$', '=no') | list }}
+        __have__: >-
+          {{ __names__
+             | zip(__names__ | map('extract', __effective__) | map('string'))
+             | map('join', '=') | map('regex_replace', '(?i)=(true|yes)$', '=yes')
+             | map('regex_replace', '(?i)=(false|no)$', '=no') | list }}
+
+      ansible.builtin.set_fact:
+        __nessus_scanner_settings_known__: "{{ __shown_names__ }}"
+        __nessus_scanner_settings_differ__: >-
+          {{ __want__ | difference(__have__) | map('regex_replace', '=.*$', '') | list }}
+        cacheable: false
 
     - name: 'VERIFY | Refuse A Setting This Nessus Does Not Have'
       vars:
@@ -412,20 +560,37 @@
       notify: 'nessus-restart-required'
 
       ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set', "{{ item }}={{ __nessus_scanner_managed__[item] }}" ]
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set',
+                "{{ item }}={{ __nessus_scanner_managed__[item] }}" ]
 
-    - name: 'VERIFY | Read Every Setting Again'
-      when: __nessus_scanner_settings_differ__ | length > 0
-      ansible.builtin.include_tasks:
-        file: 'read_settings.yml'
+    - name: 'VERIFY | Read Back Each Setting Written'
+      changed_when: false
+      loop: "{{ __nessus_scanner_settings_differ__ }}"
+      register: '__nessus_scanner_settings_written__'
 
-    - name: 'VERIFY | Require Every Managed Setting To Hold Its Declared Value'
+      ansible.builtin.command:
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--get', "{{ item }}" ]
+
+    # The product answers "The current value for '<name>' is '<value>'.", so the value is what is
+    # left between that fixed prefix and the closing quote. Unset, it answers "Could not retrieve
+    # value", which never equals a declared value.
+    - name: 'VERIFY | Require Each Written Setting To Hold Its Declared Value'
+      loop: "{{ __nessus_scanner_settings_written__.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      vars:
+        __read__: >-
+          {{ item.stdout | regex_replace("^The current value for '[^']*' is '", '')
+             | regex_replace("'[.]$", '') }}
+        __want__: "{{ __nessus_scanner_managed__[item.item] | string }}"
       ansible.builtin.assert:
-        that: __nessus_scanner_settings_differ__ | length == 0
+        that: >-
+          ({'true': 'yes', 'false': 'no'}[__read__ | lower] | default(__read__))
+          == ({'true': 'yes', 'false': 'no'}[__want__ | lower] | default(__want__))
         fail_msg: >-
-          Nessus did not keep the declared value of {{ __nessus_scanner_settings_differ__ | join(', ') }}
-          after it was written. The value may be outside what the setting accepts; see
-          'nessuscli fix --show <name>' for its options.
+          Nessus did not keep '{{ __want__ }}' for {{ item.item }}: it reads back
+          '{{ __read__ }}'. The value may be outside what the setting accepts; see
+          'nessuscli fix --show {{ item.item }}' for its options.
         quiet: true
 
     #endregion --- [ Process: 04 Converge Every Setting ] ------------------------------------ #
@@ -527,15 +692,95 @@
     # the previous material behind (measured 2026-09-30), so a converge that re-imported would
     # both report a change and accumulate files.
 
-    - name: 'PROCESS | Stage The Certificate Bundle'
+    # Fetched, checked and copied exactly as the installer is.
+    - name: 'PROCESS | Fetch The Certificate Bundle To The Controller'
+      become: false
+      changed_when: false
+      delegate_to: 'localhost'
       vars:
-        __nessus_scanner_artifact_bucket__: "{{ nessus_scanner_running.certificate.bucket }}"
-        __nessus_scanner_artifact_key__: "{{ nessus_scanner_running.certificate.key }}"
-        __nessus_scanner_artifact_sha256__: "{{ nessus_scanner_running.certificate.sha256 }}"
-        __nessus_scanner_artifact_file__: 'nessus-https.p12'
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
-      ansible.builtin.include_tasks:
-        file: 'stage_artifact.yml'
+      amazon.aws.s3_object:
+        bucket: "{{ nessus_scanner_running.certificate.bucket }}"
+        ceph: false
+        debug_botocore_endpoint_logs: false
+        dest: "{{ __nessus_scanner_stage__.path }}/nessus-https.p12"
+        dualstack: false
+        encrypt: true
+        encryption_mode: 'AES256'
+        expiry: 600
+        ignore_nonexistent_bucket: true
+        mode: 'get'
+        object: "{{ nessus_scanner_running.certificate.key }}"
+        overwrite: 'different'
+        permission: [ 'private' ]
+        prefix: ''
+        purge_tags: true
+        retries: 0
+        sig_v4: true
+        validate_bucket_name: true
+        validate_certs: true
+
+    - name: 'VERIFY | Read The Controller Copy Of The Certificate Bundle'
+      become: false
+      delegate_to: 'localhost'
+      register: '__nessus_scanner_certificate_controller__'
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ __nessus_scanner_stage__.path }}/nessus-https.p12"
+
+    # Fails before a byte is shipped: an object that changed under an unchanged pin stops here.
+    - name: 'VERIFY | Require The Controller Copy Of The Certificate Bundle To Match Its Pin'
+      ansible.builtin.assert:
+        that:
+          - __nessus_scanner_certificate_controller__.stat.exists
+          - __nessus_scanner_certificate_controller__.stat.checksum
+            == nessus_scanner_running.certificate.sha256
+        fail_msg: >-
+          The stored certificate bundle has sha256
+          {{ __nessus_scanner_certificate_controller__.stat.checksum | default('(missing)') }},
+          but the playbook pins {{ nessus_scanner_running.certificate.sha256 }}.
+          The object changed under an unchanged pin; refusing to ship it.
+        quiet: true
+
+    # Into the loader's temporary directory, which it created root-owned and 0700 and removes
+    # when the role ends, whatever the outcome.
+    - name: 'PROCESS | Copy The Certificate Bundle To The Guest'
+      changed_when: false
+
+      ansible.builtin.copy:
+        dest: "{{ __temp_dir__.path }}/nessus-https.p12"
+        force: true
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        src: "{{ __nessus_scanner_stage__.path }}/nessus-https.p12"
+
+    # Verified again on the guest, because that copy is the one used.
+    - name: 'VERIFY | Read The Guest Copy Of The Certificate Bundle'
+      register: '__nessus_scanner_certificate_guest__'
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ __temp_dir__.path }}/nessus-https.p12"
+
+    - name: 'VERIFY | Require The Guest Copy Of The Certificate Bundle To Match Its Pin'
+      ansible.builtin.assert:
+        that:
+          - __nessus_scanner_certificate_guest__.stat.exists
+          - __nessus_scanner_certificate_guest__.stat.checksum
+            == nessus_scanner_running.certificate.sha256
+        fail_msg: >-
+          The certificate bundle copied to the guest has sha256
+          {{ __nessus_scanner_certificate_guest__.stat.checksum | default('(missing)') }},
+          but the playbook pins {{ nessus_scanner_running.certificate.sha256 }}.
+          Refusing to use it.
+        quiet: true
 
     - name: 'PROCESS | Decode And Import The Certificate'
       block:
