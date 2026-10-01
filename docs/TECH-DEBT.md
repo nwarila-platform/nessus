@@ -127,3 +127,60 @@
 - **Exit criteria:** none while the decision stands. Revisit if the fleet's STIG evidence must
   show firewalld active.
 
+## TD-010 — OPEN — check mode covers the role, not the playbook or the S3 fetch
+
+- **Recorded:** 2026-10-01.
+- **Issue:** the role supports `--check` on its present and absent paths. Reads run for real;
+  steps that need the product installed are skipped whenever the pinned version is not installed,
+  and steps that depend on an earlier change in the same run are skipped under `--check`. Setting
+  drift, the service's enable and start, and an install that is due (as its fetch) are reported as
+  changed. Not covered:
+  - The playbook's own tasks and the framework roles it composes are not check-mode-proven.
+  - The two S3 fetches keep pdq-deploy-inventory's form (no `check_mode: false`), so under
+    `--check` nothing is downloaded, and the framework loader creates no temporary directory to
+    stage into. The steps that read a fetched or staged file are skipped -- the bundle's decode,
+    the certificate reads and the HTTPS steps that trust the CA decoded from it -- so certificate
+    and administrator-password drift are not reported. That `s3_object` reports a skipped get as
+    changed is read from amazon.aws 11.4.0's source ("GET operation skipped - running in check
+    mode"), never run: the lab replaces the fetch, and the deploy never runs `--check`.
+  - The signing-key trust, a missing administrator account and a lost registration are read, but
+    their writes are skipped and only settings have a "would write" report; reporting them the
+    same way is possible later work. The install-root relabel is skipped outright.
+  - END proves what PROCESS did, so a check run skips it.
+- **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
+  path skipping cleanly, and the playbook's own check-mode behaviour is decided.
+
+## TD-011 — CLOSED 2026-10-01 — the settled-registration read is removed
+
+- **Recorded:** 2026-10-01. **Closed:** 2026-10-01.
+- **Original issue:** `PROCESS | Read Whether The Settled Scanner Is Registered`
+  (`nessuscli fetch --check`) ran when the readiness wait settled on 'register', to decide the one
+  restart that clears a stale setup state.
+- **Closure evidence:**
+  - The read and the restart's clause on it are removed. Control flow ran the read only on a
+    scanner whose registration had just been confirmed: the scanner was already registered
+    (`nessuscli fetch --check` answered 0), or `PROCESS | Require The Registration To Succeed`
+    passed, in a block with no rescue.
+  - Parity, when the read was removed: where it answered 0, the restart ran exactly as before. On
+    a registered scanner where it would have answered non-zero, the restart then ran where, with
+    the read, the readiness require would have failed for certain. A scanner that is genuinely
+    unregistered still failed loudly: at the sign-in once its API closed, else at END's registration
+    proof.
+  - The stale-'register' restart never ran in a deploy: the three AWS deploys that reached it
+    (36765880901, 36773018135, 36837460712) settled on 'ready'. It ran once in a lab run, on a stale
+    state made by hand (an account added to a running scanner), which it cleared. It was then
+    removed too: the service is restarted after the account is created, before registration and the
+    readiness wait, so no start that wait depends on lacks the account.
+
+## TD-012 — OPEN — the fapolicyd trust refresh may be redundant
+
+- **Recorded:** 2026-10-01.
+- **Issue:** `PROCESS | Refresh The fapolicyd Trust Database After The Install` runs
+  `fapolicyd-cli --update` after every install while fapolicyd is active, and
+  `BEGIN | Read Whether fapolicyd Is Running` exists for it. On EL8, fapolicyd requires
+  `rpm-plugin-fapolicyd`, which rpm's default macros enable and which gives fapolicyd each new
+  file's digest during the transaction itself, so the refresh probably adds nothing. It is kept
+  because removing it can be proven only on the STIG image with fapolicyd enforcing.
+- **Exit criteria:** an AWS deploy on the STIG AMI that records
+  `rpm -q fapolicyd rpm-plugin-fapolicyd`, freshly installs with both tasks removed and fapolicyd
+  active, passes END, and reports changed=0 on its second converge.

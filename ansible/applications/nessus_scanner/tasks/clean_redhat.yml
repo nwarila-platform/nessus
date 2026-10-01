@@ -1,29 +1,52 @@
-# =========================================================================================== #
+# ============================================================================================= #
 # File: '{{ role_path }}/tasks/clean_redhat.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# Removes what the product accumulates without being asked, and nothing it runs on: every
-# certificate import leaves a timestamped copy of the material it replaced beside the live files
-# (servercert.pem.<epoch>, serverkey.pem.<epoch>, measured 2026-09-30). The role imports only on
-# difference, so these grow with rotations, not converges -- but they include superseded PRIVATE
-# keys, which have no reason to outlive the rotation that retired them.
+# state=clean removes what the product accumulates without being asked: every certificate import
+# leaves a timestamped copy of the material it replaced beside the live files
+# (servercert.pem.<epoch>, serverkey.pem.<epoch>, measured 2026-09-30), and those include
+# superseded PRIVATE keys. The product, its data and its configuration are untouched;
+# uninstalling is state=absent.
 #
-# =========================================================================================== #
+# ============================================================================================= #
 ---
-- name: 'BEGIN | Find The Superseded Certificate Material'
+
+#region ------ [ Process: Remove The Superseded Certificate Material ] ------------------------ #
+
+- name: 'PROCESS | Find The Superseded Certificate Material'
   register: '__nessus_scanner_superseded__'
 
   ansible.builtin.find:
+    age_stamp: 'mtime'
+    checksum_algorithm: 'sha1'
+    exact_mode: true
     file_type: 'file'
+    follow: false
+    get_checksum: false
+    hidden: false
     paths:
       - "{{ nessus_scanner_running.served_certificate_path | dirname }}"
       - "{{ nessus_scanner_running.install_root }}/var/nessus/CA"
     patterns: [ '*.pem.[0-9]*' ]
+    read_whole_file: false
     recurse: false
+    use_regex: false
+
+# --------------------------------------------------------------------------------------------- #
 
 - name: 'PROCESS | Remove The Superseded Certificate Material'
   loop: "{{ __nessus_scanner_superseded__.files | map(attribute='path') | list }}"
+  loop_control:
+    label: "{{ item }}"
 
   ansible.builtin.file:
+    access_time_format: '%Y%m%d%H%M.%S'
+    follow: true
+    force: false
+    modification_time_format: '%Y%m%d%H%M.%S'
     path: "{{ item }}"
+    recurse: false
     state: 'absent'
+    unsafe_writes: false
+
+#endregion --- [ Process: Remove The Superseded Certificate Material ] ------------------------ #
