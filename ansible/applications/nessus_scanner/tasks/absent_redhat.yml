@@ -1,43 +1,47 @@
-# =========================================================================================== #
+# ============================================================================================= #
 # File: '{{ role_path }}/tasks/absent_redhat.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# Reverses present_redhat.yml completely: the service, the package, everything the product left
+# Implements state=absent by removing the Nessus scanner from a RHEL host.
+#
+# BEGIN reads the machine, PROCESS removes the service, the package, everything the product left
 # under its install root (plugins, scan data, the imported certificate) and the vendor signing
-# key. A host that holds none of it changes nothing, so a second absent run reports no change.
-# The host firewall is the playbook's, not this role's.
+# key, and END proves none of it remains. END is deliberately ungated, so a host where the scanner
+# was already absent proves the same state as one this run emptied, and a second absent run
+# reports no change.
+#
+# The install root itself is normally the MOUNT POINT of the scanner's data volume, which
+# linux_disk_manager owns: removing that directory would fail while mounted and is not this
+# role's to remove. Everything beneath it is the product's, so everything beneath it goes.
 #
 # The registration is not released with Tenable: the activation code is re-used by the next
-# registration, which is what the vendor's reset-on-reinstall model expects.
+# registration, which is what the vendor's reset-on-reinstall model expects. The host firewall is
+# the playbook's, not this role's.
 #
-# =========================================================================================== #
+# ============================================================================================= #
 ---
-- name: 'PROCESS | Remove The Nessus Scanner'
-  vars:
-    __nessus_scanner_installed__: >-
-      {{ nessus_scanner_running.package_name in (ansible_facts.packages | default({})) }}
+
+#region ------ [ Begin: Remove The Nessus Scanner From RedHat ] ------------------------------- #
+
+- name: 'BEGIN | Read The Machine And Decide One Action'
+
+  # Begin The 'Begin' Block
   block:
 
-    #region ------ [ Process: Stop And Remove The Product ] --------------------------------- #
+    #region ------ [ Begin: Read The Installed Package ] -------------------------------------- #
 
-    - name: 'PROCESS | Stop And Disable The Scanner Service'
-      when: __nessus_scanner_installed__ | bool
+    - name: 'BEGIN | Read Whether The Package Is Installed'
+      changed_when: false
+      failed_when: __nessus_scanner_package__.rc not in [0, 1]
+      register: '__nessus_scanner_package__'
 
-      ansible.builtin.systemd_service:
-        enabled: false
-        name: "{{ nessus_scanner_running.service_name }}"
-        state: 'stopped'
+      ansible.builtin.command:
+        argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
 
-    - name: 'PROCESS | Remove The Package'
-      ansible.builtin.dnf:
-        autoremove: false
-        name: "{{ nessus_scanner_running.package_name }}"
-        state: 'absent'
+    #endregion --- [ Begin: Read The Installed Package ] -------------------------------------- #
 
-    # The package leaves its data behind by design; absent means none of it remains. The install
-    # root itself is normally the MOUNT POINT of the scanner's data volume, which linux_disk_manager
-    # owns: removing that directory would fail while mounted and is not this role's to remove.
-    # Everything beneath it is the product's, so everything beneath it goes.
+    #region ------ [ Begin: Find Everything Under The Install Root ] -------------------------- #
+
     - name: 'BEGIN | Find Everything Under The Install Root'
       register: '__nessus_scanner_remains__'
 
@@ -47,6 +51,40 @@
         paths: [ "{{ nessus_scanner_running.install_root }}" ]
         recurse: false
 
+    #endregion --- [ Begin: Find Everything Under The Install Root ] -------------------------- #
+
+#endregion --- [ Begin: Remove The Nessus Scanner From RedHat ] ------------------------------- #
+
+
+#region ------ [ Process: Remove The Nessus Scanner From RedHat ] ----------------------------- #
+
+- name: 'PROCESS | Remove The Nessus Scanner'
+
+  # Begin The 'Process' Block
+  block:
+
+    #region ------ [ Process: Stop And Remove The Product ] ----------------------------------- #
+
+    - name: 'PROCESS | Stop And Disable The Scanner Service'
+      when: __nessus_scanner_package__.rc == 0
+
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "{{ nessus_scanner_running.service_name }}"
+        state: 'stopped'
+
+    # ----------------------------------------------------------------------------------------- #
+
+    - name: 'PROCESS | Remove The Package'
+      ansible.builtin.dnf:
+        autoremove: false
+        name: "{{ nessus_scanner_running.package_name }}"
+        state: 'absent'
+
+    # ----------------------------------------------------------------------------------------- #
+
+    # The package leaves its data behind by design; absent means none of it remains. An entry the
+    # package removal already took is simply absent here.
     - name: 'PROCESS | Remove Everything Under The Install Root'
       loop: "{{ __nessus_scanner_remains__.files | map(attribute='path') | list }}"
 
@@ -54,20 +92,30 @@
         path: "{{ item }}"
         state: 'absent'
 
-    #endregion --- [ Process: Stop And Remove The Product ] --------------------------------- #
+    #endregion --- [ Process: Stop And Remove The Product ] ----------------------------------- #
 
-    #region ------ [ Process: Withdraw The Vendor Signing Key ] ----------------------------- #
+    #region ------ [ Process: Withdraw The Vendor Signing Key ] ------------------------------- #
 
     - name: 'PROCESS | Withdraw The Vendor Signing Key'
       ansible.builtin.rpm_key:
         key: "{{ nessus_scanner_running.signing_key.fingerprint[-8:] }}"
         state: 'absent'
 
-    #endregion --- [ Process: Withdraw The Vendor Signing Key ] ----------------------------- #
+    #endregion --- [ Process: Withdraw The Vendor Signing Key ] ------------------------------- #
 
-    #region ------ [ Verify: Nothing Remains ] ---------------------------------------------- #
+#endregion --- [ Process: Remove The Nessus Scanner From RedHat ] ----------------------------- #
 
-    - name: 'VERIFY | Read Whether The Package Remains'
+
+#region ------ [ End: Remove The Nessus Scanner From RedHat ] --------------------------------- #
+
+- name: 'END | Prove The Scanner Is Gone'
+
+  # Begin The 'End' Block
+  block:
+
+    #region ------ [ End: Re-Read The Machine ] ----------------------------------------------- #
+
+    - name: 'END | Read Whether The Package Remains'
       changed_when: false
       failed_when: false
       register: '__nessus_scanner_package_after__'
@@ -75,7 +123,9 @@
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
 
-    - name: 'VERIFY | Read What Remains Under The Install Root'
+    # ----------------------------------------------------------------------------------------- #
+
+    - name: 'END | Read What Remains Under The Install Root'
       register: '__nessus_scanner_root_after__'
 
       ansible.builtin.find:
@@ -84,7 +134,11 @@
         paths: [ "{{ nessus_scanner_running.install_root }}" ]
         recurse: false
 
-    - name: 'VERIFY | Require Nothing Of The Scanner To Remain'
+    #endregion --- [ End: Re-Read The Machine ] ----------------------------------------------- #
+
+    #region ------ [ End: Prove Nothing Of The Scanner Remains ] ------------------------------ #
+
+    - name: 'END | Prove Nothing Of The Scanner Remains'
       ansible.builtin.assert:
         that:
           - __nessus_scanner_package_after__.rc != 0
@@ -95,4 +149,6 @@
           {{ __nessus_scanner_root_after__.files | map(attribute='path') | list }}.
         quiet: true
 
-    #endregion --- [ Verify: Nothing Remains ] ---------------------------------------------- #
+    #endregion --- [ End: Prove Nothing Of The Scanner Remains ] ------------------------------ #
+
+#endregion --- [ End: Remove The Nessus Scanner From RedHat ] --------------------------------- #

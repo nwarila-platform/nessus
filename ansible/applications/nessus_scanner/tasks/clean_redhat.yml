@@ -1,16 +1,19 @@
-# =========================================================================================== #
+# ============================================================================================= #
 # File: '{{ role_path }}/tasks/clean_redhat.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# Removes what the product accumulates without being asked, and nothing it runs on: every
-# certificate import leaves a timestamped copy of the material it replaced beside the live files
-# (servercert.pem.<epoch>, serverkey.pem.<epoch>, measured 2026-09-30). The role imports only on
-# difference, so these grow with rotations, not converges -- but they include superseded PRIVATE
-# keys, which have no reason to outlive the rotation that retired them.
+# state=clean removes what the product accumulates without being asked: every certificate import
+# leaves a timestamped copy of the material it replaced beside the live files
+# (servercert.pem.<epoch>, serverkey.pem.<epoch>, measured 2026-09-30), and those include
+# superseded PRIVATE keys. The product, its data and its configuration are untouched;
+# uninstalling is state=absent.
 #
-# =========================================================================================== #
+# ============================================================================================= #
 ---
-- name: 'BEGIN | Find The Superseded Certificate Material'
+
+#region ------ [ Process: Remove The Superseded Certificate Material ] ------------------------ #
+
+- name: 'PROCESS | Find The Superseded Certificate Material'
   register: '__nessus_scanner_superseded__'
 
   ansible.builtin.find:
@@ -21,9 +24,13 @@
     patterns: [ '*.pem.[0-9]*' ]
     recurse: false
 
+# --------------------------------------------------------------------------------------------- #
+
 - name: 'PROCESS | Remove The Superseded Certificate Material'
   loop: "{{ __nessus_scanner_superseded__.files | map(attribute='path') | list }}"
 
   ansible.builtin.file:
     path: "{{ item }}"
     state: 'absent'
+
+#endregion --- [ Process: Remove The Superseded Certificate Material ] ------------------------ #
