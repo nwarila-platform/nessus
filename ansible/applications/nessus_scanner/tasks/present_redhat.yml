@@ -87,7 +87,7 @@
     - name: 'BEGIN | Read Whether SELinux Is Enabled'
       changed_when: false
       check_mode: false
-      failed_when: false
+      failed_when: __nessus_scanner_selinux__.rc not in [0, 1]
       register: '__nessus_scanner_selinux__'
 
       ansible.builtin.command:
@@ -541,14 +541,14 @@
 
     # ----------------------------------------------------------------------------------------- #
     # fapolicyd trusts a file by its RPM digest only once it has learned of it, so its trust
-    # database is refreshed after an install, before anything the package delivered is run.
+    # database is refreshed after an install (TD-012).
 
     - name: 'PROCESS | Refresh The fapolicyd Trust Database After The Install'
       changed_when: true
       when:
         - not ansible_check_mode
         - __install_required__ | bool
-        - __nessus_scanner_fapolicyd__.stdout | trim == 'active'
+        - __nessus_scanner_fapolicyd__.stdout == 'active'
 
       ansible.builtin.command:
         argv:
@@ -969,7 +969,7 @@
           {{ __certificate__['names-host'].stdout }}.
         quiet: true
         that:
-          - __nessus_scanner_ca_count__.stdout | trim == '1'
+          - __nessus_scanner_ca_count__.stdout == '1'
           - __certificate__['in-date'].rc == 0
           - __certificate__['names-localhost'].stdout is search('does match')
           - __certificate__['names-host'].stdout is search('does match')
@@ -1378,8 +1378,8 @@
     # response -- with it the product's own error. They never fail; the require at the end of
     # this region names any answer that is not a session by its status and the product's own
     # error. A scanner whose API is unavailable closes the connection on the sign-in: curl reads
-    # 412 "API is not available", and uri reports -1 or, cut short, no status at all (measured
-    # 2026-10-01).
+    # 412 "API is not available" and uri reports -1; a request cut short mid-answer leaves no
+    # status at all, as the data-volume proof's write measured (2026-10-01).
 
     - name: 'PROCESS | Sign In As The Administrator'
       changed_when: false
@@ -1649,7 +1649,7 @@
       vars:
         __declared_fingerprint__: >-
           {{ (__nessus_scanner_certificate_read__.results
-              | selectattr('item.check', 'equalto', 'declared-fingerprint') | first).stdout | trim }}
+              | selectattr('item.check', 'equalto', 'declared-fingerprint') | first).stdout }}
       when: not ansible_check_mode
 
       ansible.builtin.assert:
@@ -1659,14 +1659,14 @@
           {{ nessus_scanner_running.installer.version }}); service:
           {{ __nessus_scanner_unit__.results | map(attribute='stdout') | join('/') }};
           registered: {{ __nessus_scanner_registration_after__.rc == 0 }}; served certificate:
-          {{ __nessus_scanner_served__.stdout | trim }} (declared {{ __declared_fingerprint__ }}).
+          {{ __nessus_scanner_served__.stdout }} (declared {{ __declared_fingerprint__ }}).
         quiet: true
         that:
           - __nessus_scanner_rpm_version__.stdout == nessus_scanner_running.installer.version
-          - __nessus_scanner_unit__.results[0].stdout | trim == 'enabled'
-          - __nessus_scanner_unit__.results[1].stdout | trim == 'active'
+          - __nessus_scanner_unit__.results[0].stdout == 'enabled'
+          - __nessus_scanner_unit__.results[1].stdout == 'active'
           - __nessus_scanner_registration_after__.rc == 0
-          - __nessus_scanner_served__.stdout | trim == __declared_fingerprint__
+          - __nessus_scanner_served__.stdout == __declared_fingerprint__
 
     #endregion --- [ End: Prove The Declared Scanner ] ---------------------------------------- #
 

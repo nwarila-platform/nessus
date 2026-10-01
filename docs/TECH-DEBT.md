@@ -145,8 +145,7 @@
     mode"), never run: the lab replaces the fetch, and the deploy never runs `--check`.
   - The signing-key trust, a missing administrator account and a lost registration are read, but
     their writes are skipped and only settings have a "would write" report; reporting them the
-    same way is possible later work. The install-root relabel is
-    skipped outright.
+    same way is possible later work. The install-root relabel is skipped outright.
   - END proves what PROCESS did, so a check run skips it.
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
   path skipping cleanly, and the playbook's own check-mode behaviour is decided.
@@ -161,3 +160,16 @@
   path exists only on a registered AWS scanner, and removing the read there could not be proven
   before merge.
 - **Exit criteria:** an AWS deploy that reaches the stale-'register' restart without the read.
+
+## TD-012 — OPEN — the fapolicyd trust refresh may be redundant
+
+- **Recorded:** 2026-10-01.
+- **Issue:** `PROCESS | Refresh The fapolicyd Trust Database After The Install` runs
+  `fapolicyd-cli --update` after every install while fapolicyd is active, and `BEGIN | Read Whether
+  fapolicyd Is Running` exists for it. On EL8, fapolicyd requires `rpm-plugin-fapolicyd`, which
+  rpm's default macros enable and which gives fapolicyd each new file's digest during the
+  transaction itself, so the refresh probably adds nothing. It is kept because removing it can be
+  proven only on the STIG image with fapolicyd enforcing.
+- **Exit criteria:** an AWS deploy on the STIG AMI that records `rpm -q fapolicyd
+  rpm-plugin-fapolicyd`, freshly installs with both tasks removed and fapolicyd active, passes END,
+  and reports changed=0 on its second converge.

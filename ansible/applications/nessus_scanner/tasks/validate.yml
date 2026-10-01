@@ -52,8 +52,9 @@
       Refusing to deploy: a required input is missing or malformed. The playbook must supply the
       installer (bucket, a key carrying the <version> token, a lowercase 64-char sha256); the
       certificate bundle (bucket, a .p12 key, its lowercase 64-char sha256 and its password); an
-      activation code of 16-64 letters, digits and dashes; and an administrator password of at
-      least 12 characters on one line. See meta/main.yml.
+      activation code of 16-64 letters, digits and dashes; an administrator username of 3-32
+      lower-case letters, digits, '.', '_' or '-', starting with a letter; and an administrator
+      password of at least 12 characters on one line. See meta/main.yml.
     quiet: true
 
 - name: 'VALIDATE | Require Settings The Command Line Can Carry'
