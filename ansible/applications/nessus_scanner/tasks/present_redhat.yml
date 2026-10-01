@@ -549,9 +549,7 @@
 
     #region ------ [ Process: Start The Service ] --------------------------------------------- #
     # Started before anything is configured, because the settings store does not exist until the
-    # service has run once. 'nessuscli fix' exits 1 with "The global.db is not yet intitialized"
-    # (sic) for tens of seconds after a first start (measured 2026-09-30; the exit status
-    # 2026-10-01), so the wait ends at the first answer that exits 0.
+    # service has run once.
 
     - name: 'PROCESS | Enable And Start The Scanner Service'
       when: not (ansible_check_mode and __install_required__ | bool)
@@ -565,27 +563,6 @@
         scope: 'system'
         state: 'started'
 
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Wait For The Settings Store'
-      changed_when: false
-      check_mode: false
-      delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
-      register: '__nessus_scanner_store_ready__'
-      retries: "{{ nessus_scanner_running.timeouts.settings_attempts | int }}"
-      until: __nessus_scanner_store_ready__.rc == 0
-      when: not (ansible_check_mode and __install_required__ | bool)
-
-      ansible.builtin.command:
-        argv:
-          - "{{ nessus_scanner_running.cli_path }}"
-          - 'fix'
-          - '--get'
-          - 'ssl_mode'
-        expand_argument_vars: true
-        stdin_add_newline: true
-        strip_empty_ends: true
-
     #endregion --- [ Process: Start The Service ] --------------------------------------------- #
 
     #region ------ [ Process: Converge Every Setting ] ---------------------------------------- #
@@ -593,12 +570,17 @@
     # 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a real one),
     # so a declared name this Nessus does not have is refused instead of being kept silently.
     # Read once and write only what differs; 'fix --set' itself refuses a value outside the
-    # setting's range (measured 2026-10-01).
+    # setting's range (measured 2026-10-01). 'nessuscli fix' exits 1 with "The global.db is not
+    # yet intitialized" (sic) for tens of seconds after a first start (measured 2026-09-30; the
+    # exit status 2026-10-01), so the first read of the store retries until it exits 0.
 
     - name: 'PROCESS | Read The Settings Catalogue'
       changed_when: false
       check_mode: false
+      delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
       register: '__nessus_scanner_catalogue__'
+      retries: "{{ nessus_scanner_running.timeouts.settings_attempts | int }}"
+      until: __nessus_scanner_catalogue__.rc == 0
       when: not (ansible_check_mode and __install_required__ | bool)
 
       ansible.builtin.command:
@@ -844,7 +826,8 @@
           scripts/mint-nessus-https.sh.
         quiet: true
         that:
-          - __nessus_scanner_decoded__.results | rejectattr('rc', 'eq', 0) | list | length == 0
+          - __nessus_scanner_decoded__.results | rejectattr('rc', 'equalto', 0) | list
+            | length == 0
 
     # ----------------------------------------------------------------------------------------- #
     # Written without the attribute headers PKCS#12 export adds, which some consumers refuse.
@@ -1236,10 +1219,8 @@
       until: >-
         __nessus_scanner_status__.json.status | default('') == 'ready'
         or (__nessus_scanner_status__.json.status | default('') == 'register'
-            and __nessus_scanner_status__.json.detailed_status.engine_status.status
-                | default('') == 'ready'
-            and __nessus_scanner_status__.json.detailed_status.feed_status.status
-                | default('') == 'ready')
+            and __nessus_scanner_status__.json.detailed_status.engine_status.status == 'ready'
+            and __nessus_scanner_status__.json.detailed_status.feed_status.status == 'ready')
       when: not ansible_check_mode
 
       ansible.builtin.uri:
@@ -1350,15 +1331,16 @@
         quiet: true
         that:
           - __final__.status | default(-1) == 200
-          - __final__.json.status | default('') == 'ready'
+          - __final__.json.status == 'ready'
 
     #endregion --- [ Process: Wait Until Ready, Over Validated HTTPS ] ------------------------ #
 
     #region ------ [ Process: Prove The Account Over Validated HTTPS ] ------------------------ #
     # Signing in proves the declared password opens the account, over the same CA- and
-    # hostname-validated HTTPS. A refused sign-in means the declared password moved -- or three
-    # failures locked the account -- and the command line converges it: 'nessuscli chpasswd'
-    # sets the password and clears a lock (measured 2026-10-01). END signs the session out.
+    # hostname-validated HTTPS. A sign-in answered 401 means the declared password moved -- or
+    # three failures locked the account -- and the command line converges it:
+    # 'nessuscli chpasswd' sets the password and clears a lock (measured 2026-10-01). END signs
+    # the session out.
     #
     # Both sign-ins carry no_log, since their request holds the password, and no_log hides their
     # response -- with it the product's own error. They never fail; the require at the end of

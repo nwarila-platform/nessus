@@ -82,8 +82,8 @@ listener to port 8834; the caller may change either, and any setting by name (be
 under this role names an account, bucket or secret.
 
 `tasks/validate.yml` enforces these inputs on the controller before the role changes anything on
-the guest, and a failure names the input, never its value. `installer.version` is required for
-every state; the artifact sources and secrets only for `present`.
+the guest, and a failure names the input and never prints a secret. `installer.version` is
+required for every state; the artifact sources and secrets only for `present`.
 [`meta/main.yml`](meta/main.yml) describes each input.
 
 ## Configuration
@@ -227,8 +227,8 @@ installed, the steps that need it are skipped. TD-010 records these limits; the 
 
 - **One administrator account.** Nessus Professional and Essentials hold exactly one account, so
   `administrator` is *the* account. The product refuses a second, and a converge that meets that
-  refusal fails naming it. Every account write is judged by what the product prints as well as by
-  its exit status.
+  refusal fails naming it. Every account write is judged by its exit status, and a refusal fails
+  naming the product's last line.
 - **The pinned version is authoritative both ways.** The package is installed whenever the
   installed version differs from `installer.version`, older or newer, so `dnf` runs with
   `allow_downgrade`, and END fails if the installed version is not the pin.

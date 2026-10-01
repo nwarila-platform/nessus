@@ -7,7 +7,8 @@
 # input that has no default, so this is where a missing or malformed one is caught -- in a
 # second, rather than mid-converge at the cost of an instance.
 #
-# No assertion here prints a value: a failure names the input, never what it held.
+# No assertion here prints a secret: a failure names the input, and the password check names the
+# minimum the declared settings set.
 #
 # meta/main.yml describes these inputs; this file is what enforces them.
 #
