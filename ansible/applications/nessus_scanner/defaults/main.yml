@@ -94,7 +94,7 @@ nessus_scanner_defaults:
   #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
   # xmlrpc_listen_port is derived from listener.port and must not be named here too.
   settings:
-    #region ------ [ Settings: User Interface ] --------------------------------------------- #
+    #region ------ [ Settings: User Interface ] ---------------------------------------------- #
     login_banner: ''
     scan_vulnerability_groups: 'yes'
     scan_vulnerability_groups_mixed: 'yes'
@@ -109,9 +109,9 @@ nessus_scanner_defaults:
     disable_api: 'no'
     disable_frontend: 'false'
     ui_theme: 'track_os_setting'
-    #endregion --- [ Settings: User Interface ] --------------------------------------------- #
+    #endregion --- [ Settings: User Interface ] ---------------------------------------------- #
 
-    #region ------ [ Settings: Password ] --------------------------------------------------- #
+    #region ------ [ Settings: Password ] ---------------------------------------------------- #
     # Hardened: end idle sessions after 10 minutes, the ASD STIG's limit for an
     # administrator (APSC-DV-000080); Essentials' one account is one.
     xmlrpc_idle_session_timeout: '10'
@@ -127,9 +127,9 @@ nessus_scanner_defaults:
     passwd_complexity: 'yes'
     # Hardened: show the last successful and failed sign-ins (AC-9).
     passwd_notifications: 'yes'
-    #endregion --- [ Settings: Password ] --------------------------------------------------- #
+    #endregion --- [ Settings: Password ] ---------------------------------------------------- #
 
-    #region ------ [ Settings: Security ] --------------------------------------------------- #
+    #region ------ [ Settings: Security ] ---------------------------------------------------- #
     # Hardened: TLS 1.3 only. NIST SP 800-52r2 requires TLS 1.2 and asks for 1.3; this host
     # refuses 1.2 outright (lab: a TLS 1.2 handshake is refused, 1.3 negotiates AES-256-GCM).
     ssl_mode: 'tls_1_3'
@@ -148,9 +148,9 @@ nessus_scanner_defaults:
     # Hardened: require Nessus's FIPS-validated module for database encryption and
     # agent communication (SC-13). It does not change scanning.
     fips_mode: 'enforcing'
-    #endregion --- [ Settings: Security ] --------------------------------------------------- #
+    #endregion --- [ Settings: Security ] ---------------------------------------------------- #
 
-    #region ------ [ Settings: Scanning ] --------------------------------------------------- #
+    #region ------ [ Settings: Scanning ] ---------------------------------------------------- #
     plugin_output_max_size_kb: '1000'
     auto_enable_dependencies: 'yes'
     engine.idle_wait: '60'
@@ -173,9 +173,9 @@ nessus_scanner_defaults:
     triggered_scan_child_node_update_freq: '6'
     triggered_scan_node_last_update_advance: '600'
     scan.host_timeout_minutes: '0'
-    #endregion --- [ Settings: Scanning ] --------------------------------------------------- #
+    #endregion --- [ Settings: Scanning ] ---------------------------------------------------- #
 
-    #region ------ [ Settings: Performance ] ------------------------------------------------ #
+    #region ------ [ Settings: Performance ] ------------------------------------------------- #
     checks_read_timeout: '5'
     global.port_timeout.max_sec: '300'
     global.port_timeout.tcp: ''
@@ -208,9 +208,9 @@ nessus_scanner_defaults:
     db_synchronous_setting: 'NORMAL'
     backend_socket_read_timeout: '60'
     scratchpad_max_size_mb: '0'
-    #endregion --- [ Settings: Performance ] ------------------------------------------------ #
+    #endregion --- [ Settings: Performance ] ------------------------------------------------- #
 
-    #region ------ [ Settings: Logging ] ---------------------------------------------------- #
+    #region ------ [ Settings: Logging ] ----------------------------------------------------- #
     backend_log_level: 'normal'
     dumpfile: '/opt/nessus/var/nessus/logs/nessusd.dump'
     dumpfile_rot: 'size'
@@ -232,9 +232,9 @@ nessus_scanner_defaults:
     write_coverage_data: 'false'
     plugin_fork_warn_threshold: '1000'
     plugin_fork_trace: '0'
-    #endregion --- [ Settings: Logging ] ---------------------------------------------------- #
+    #endregion --- [ Settings: Logging ] ----------------------------------------------------- #
 
-    #region ------ [ Settings: Miscellaneous ] ---------------------------------------------- #
+    #region ------ [ Settings: Miscellaneous ] ----------------------------------------------- #
     # Plugins update themselves daily...
     auto_update: 'yes'
     auto_update_delay: '24'
@@ -295,19 +295,19 @@ nessus_scanner_defaults:
     offline_mode: 'false'
     perform_global_db_init_integrity_check: 'true'
     preferred_report_format: 'pdf'
-    #endregion --- [ Settings: Miscellaneous ] ---------------------------------------------- #
+    #endregion --- [ Settings: Miscellaneous ] ----------------------------------------------- #
 
-    #region ------ [ Settings: Custom ] ----------------------------------------------------- #
+    #region ------ [ Settings: Custom ] ------------------------------------------------------ #
     acas_classification: ''
-    #endregion --- [ Settings: Custom ] ----------------------------------------------------- #
+    #endregion --- [ Settings: Custom ] ------------------------------------------------------ #
 
-    #region ------ [ Settings: Stored At Install, Absent From The Catalogue ] --------------- #
+    #region ------ [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
     bw_permanent_blackout_window: 'no'
     bw_prevent_agent_scans: 'yes'
     bw_prevent_core_updates: 'yes'
     bw_prevent_plugin_updates: 'yes'
     track_unique_agents: 'yes'
-    #endregion --- [ Settings: Stored At Install, Absent From The Catalogue ] --------------- #
+    #endregion --- [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
 
   #endregion --- [ Listener and settings ] --------------------------------------------------- #
 
