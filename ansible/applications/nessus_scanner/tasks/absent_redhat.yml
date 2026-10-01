@@ -32,6 +32,7 @@
 
     - name: 'BEGIN | Read Whether The Package Is Installed'
       changed_when: false
+      check_mode: false
       failed_when: __nessus_scanner_package__.rc not in [0, 1]
       register: '__nessus_scanner_package__'
 
@@ -43,6 +44,7 @@
     #region ------ [ Begin: Find Everything Under The Install Root ] -------------------------- #
 
     - name: 'BEGIN | Find Everything Under The Install Root'
+      check_mode: false
       register: '__nessus_scanner_remains__'
 
       ansible.builtin.find:
@@ -117,8 +119,10 @@
 
     - name: 'END | Read Whether The Package Remains'
       changed_when: false
+      check_mode: false
       failed_when: false
       register: '__nessus_scanner_package_after__'
+      when: not ansible_check_mode
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
@@ -126,7 +130,9 @@
     # ----------------------------------------------------------------------------------------- #
 
     - name: 'END | Read What Remains Under The Install Root'
+      check_mode: false
       register: '__nessus_scanner_root_after__'
+      when: not ansible_check_mode
 
       ansible.builtin.find:
         file_type: 'any'
@@ -139,6 +145,8 @@
     #region ------ [ End: Prove Nothing Of The Scanner Remains ] ------------------------------ #
 
     - name: 'END | Prove Nothing Of The Scanner Remains'
+      when: not ansible_check_mode
+
       ansible.builtin.assert:
         that:
           - __nessus_scanner_package_after__.rc != 0

@@ -127,3 +127,21 @@
 - **Exit criteria:** none while the decision stands. Revisit if the fleet's STIG evidence must
   show firewalld active.
 
+## TD-010 — OPEN — check mode covers the role, not the playbook or the S3 fetch
+
+- **Recorded:** 2026-10-01.
+- **Issue:** the role supports `--check` on its present and absent paths. Reads run for real,
+  steps that need the product installed are skipped when a fresh host runs `--check`, and steps
+  that depend on an earlier change in the same run are skipped under `--check`. Setting drift is
+  reported as changed. Not covered:
+  - The playbook and the framework roles it composes are not this repository's to change.
+  - The two S3 fetches keep the Golden's form (no `check_mode: false`), so under `--check` nothing
+    is downloaded, and the framework loader creates no temporary directory to stage into. Every
+    step that reads a fetched or staged file is skipped, including the HTTPS steps that trust the
+    CA decoded from the bundle, so certificate and administrator-password drift are not reported.
+    The fetch path is unproven anywhere: the lab replaces the fetch, and the deploy never runs
+    `--check`.
+  - END proves what PROCESS did, so a check run skips it.
+- **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
+  path skipping cleanly, and the playbook's own check-mode behaviour is decided.
+
