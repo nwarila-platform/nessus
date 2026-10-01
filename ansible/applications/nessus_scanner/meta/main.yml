@@ -37,7 +37,9 @@ galaxy_info:
     HTTPS, registers the scanner and fetches its plugins, and converges its one administrator
     account -- then proves the result over HTTPS validated against the declared CA and hostname.
   license: 'MIT'
-  min_ansible_version: '2.20'
+  # 2.21 is the fleet's ansible-core baseline, not this role's own need: the stat reads want
+  # get_selinux_context, which core added in 2.20. The floor is the higher of the two.
+  min_ansible_version: '2.21'
   platforms:
     - name: 'EL'
       versions:
