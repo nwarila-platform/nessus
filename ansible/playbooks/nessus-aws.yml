@@ -216,7 +216,7 @@
                   ip saddr 127.0.0.0/8 drop
                   ip6 saddr ::1 drop
                   meta l4proto { icmp, ipv6-icmp } accept
-                  tcp dport {{ ansible_port | default(22) }} ct state new limit rate 25/second burst 50 packets accept
+                  tcp dport {{ ansible_port }} ct state new limit rate 25/second burst 50 packets accept
           {% if __listener_open__ | bool %}
                   tcp dport {{ nessus_listener_port }} ct state new limit rate 25/second burst 50 packets accept
           {% endif %}
@@ -350,11 +350,13 @@
         # never fails; this names any answer that is not a session.
         - name: 'PROCESS | Require The Administrator To Sign In'
           ansible.builtin.assert:
-            that: __proof_session__.status == 200
+            that: __proof_session__.status | default(-1) == 200
             fail_msg: >-
               The administrator could not sign in to prove the data volume: HTTP
-              {{ __proof_session__.status }} {{ __proof_session__.json.error | default('') }}
-              {{ __proof_session__.msg }}.
+              {{ __proof_session__.status | default(-1) }}
+              {{ __proof_session__.json.error | default('') }}
+              {{ __proof_session__.msg
+                 | default('uri returned no status: the request did not complete') }}.
             quiet: true
 
         - name: 'PROCESS | Write The Proof Record Before The OS Is Replaced'

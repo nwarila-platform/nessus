@@ -15,9 +15,8 @@
 # linux_disk_manager owns: removing that directory would fail while mounted and is not this
 # role's to remove. Everything beneath it is the product's, so everything beneath it goes.
 #
-# The registration is not released with Tenable: the activation code is re-used by the next
-# registration, which is what the vendor's reset-on-reinstall model expects. The host firewall is
-# the playbook's, not this role's.
+# The registration is not released with Tenable (TD-007). The host firewall is the playbook's,
+# not this role's.
 #
 # ============================================================================================= #
 ---

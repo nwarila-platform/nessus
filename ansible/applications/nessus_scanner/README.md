@@ -214,14 +214,15 @@ tool fails at `PROCESS | Require The Bundle To Decode`, and the message names th
   untouched.
 
 `present` and `absent` support `--check`. Reads run for real, and END, which proves what PROCESS
-did, is skipped. Reported as changed: setting drift, the service's enable and start, and an
-install that is due (as its fetch). Read but not reported, because the write is skipped and only
-settings have a "would write" report: a missing administrator account and a lost registration.
-Not read, because they need a file only a real run fetches or stages: the signing-key trust,
-certificate drift and administrator-password drift. Skipped outright: the install-root relabel and
-the FIPS module completion. Whenever the pinned version is not installed, the steps that need it
-are skipped. TD-010 records these limits; the S3 fetch path under `--check` is unproven, because
-the lab replaces the fetch.
+did, is skipped. Reported as changed: setting drift, the service's enable and start, and an install
+that is due (as its fetch). Read but not reported, because the write is skipped and only settings
+have a "would write" report: the signing-key trust, the FIPS module completion, a missing
+administrator account and a lost registration. Not read, because they need a file only a real run
+fetches or stages -- the bundle's decode, the certificate reads and the HTTPS steps that trust its
+CA are skipped: certificate drift and administrator-password drift. Skipped outright: the
+install-root relabel. Whenever the pinned version is not installed, the steps that need it are
+skipped. TD-010 records these limits; the S3 fetch path under `--check` is unproven, because the
+lab replaces the fetch.
 
 ## Design invariants
 

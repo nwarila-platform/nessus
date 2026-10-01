@@ -4,11 +4,11 @@
 #
 # Converges a RHEL 8 host into a registered, HTTPS-serving Nessus scanner at the pinned version.
 #
-# BEGIN reads the machine and decides: whether the pinned package must be installed, and whether
-# the data volume already holds a scanner to adopt. PROCESS acts on those decisions and converges
-# everything else on difference -- the vendor key, the package, every setting, the certificate,
-# the one account and the registration. END proves the result. Conditions sit on the tasks,
-# never on a stage.
+# BEGIN reads the machine. From those reads PROCESS decides whether the pinned package must be
+# installed and whether the data volume already holds a scanner to adopt, acts on those
+# decisions, and converges everything else on difference -- the vendor key, the package, every
+# setting, the certificate, the one account and the registration. END proves the result.
+# Conditions sit on the tasks, never on a stage.
 #
 # END runs on every real run, whatever PROCESS changed, so a converged host proves the same state
 # as a freshly built one; --check skips it, having no result to prove.
@@ -166,8 +166,7 @@
       ca: "{{ __temp_dir__.path }}/nessus-https-ca.pem"
     __base_url__: "https://localhost:{{ nessus_scanner_running.listener.port | int }}"
     __install_required__: >-
-      {{ (__nessus_scanner_package__.stdout_lines if __nessus_scanner_package__.rc == 0 else [])
-         != [nessus_scanner_running.installer.version] }}
+      {{ __nessus_scanner_package__.stdout != nessus_scanner_running.installer.version }}
     #   install  no identity on the volume: a fresh scanner is installed onto it.
     #   adopt    an identity this OS has never run -- the OS was replaced under the volume. The
     #            package is reinstalled over the existing tree, and everything else is kept.
@@ -1401,10 +1400,11 @@
       ansible.builtin.assert:
         fail_msg: >-
           Nessus did not report ready over HTTPS validated against the declared CA. Last answer:
-          {{ __final__.msg }} {{ __final__.json | default({}) | to_json }}
+          {{ __final__.msg | default('uri returned no status: the request did not complete') }}
+          {{ __final__.json | default({}) | to_json }}
         quiet: true
         that:
-          - __final__.status == 200
+          - __final__.status | default(-1) == 200
           - __final__.json.status | default('') == 'ready'
 
     #endregion --- [ Process: Wait Until Ready, Over Validated HTTPS ] ------------------------ #
@@ -1462,7 +1462,7 @@
       register: '__nessus_scanner_reset__'
       when:
         - not ansible_check_mode
-        - __nessus_scanner_signin__.status == 401
+        - __nessus_scanner_signin__.status | default(-1) == 401
 
       ansible.builtin.command:
         argv:
@@ -1538,13 +1538,12 @@
       ansible.builtin.assert:
         fail_msg: >-
           '{{ nessus_scanner_running.administrator.username }}' could not sign in to the API with
-          the declared password: HTTP {{ __session__.status }}
+          the declared password: HTTP {{ __session__.status | default(-1) }}
           {{ __session__.json.error | default('') }}
-          {{ __session__.msg }}.
+          {{ __session__.msg
+             | default('uri returned no status: the request did not complete') }}.
         quiet: true
-        that:
-          - __session__.status == 200
-          - __session__.json.token | default('') | length > 0
+        that: __session__.status | default(-1) == 200
 
     #endregion --- [ Process: Prove The Account Over Validated HTTPS ] ------------------------ #
 

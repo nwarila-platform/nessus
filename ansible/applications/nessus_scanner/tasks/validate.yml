@@ -3,9 +3,9 @@
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
 # Validates load-bearing Nessus configuration after the v3 loader merge, on the CONTROLLER,
-# before anything touches the guest. The artifact and secret inputs are supplied by the playbook
-# rather than defaulted, so this is where a missing or malformed one is caught -- in a second,
-# rather than mid-converge at the cost of an instance.
+# before the role changes anything on the guest. The artifact and secret inputs are supplied by
+# the playbook rather than defaulted, so this is where a missing or malformed one is caught -- in
+# a second, rather than mid-converge at the cost of an instance.
 #
 # No assertion here prints a value: a failure names the input, never what it held.
 #
@@ -87,7 +87,7 @@
 - name: 'VALIDATE | Require An Administrator Password The Declared Policy Accepts'
   when: (state | default('present') | string | lower | trim) == 'present'
   vars:
-    __password__: "{{ nessus_scanner_running.administrator.password | default('') | string | trim }}"
+    __password__: "{{ nessus_scanner_running.administrator.password | string | trim }}"
     __minimum__: >-
       {{ [nessus_scanner_running.settings.min_password_len | default(0, true) | int,
           nessus_scanner_running.settings.xmlrpc_min_password_len | default(0, true) | int] | max }}
