@@ -36,6 +36,8 @@
 
 - name: 'PROCESS | Remove The Superseded Certificate Material'
   loop: "{{ __nessus_scanner_superseded__.files | map(attribute='path') | list }}"
+  loop_control:
+    label: "{{ item }}"
 
   ansible.builtin.file:
     access_time_format: '%Y%m%d%H%M.%S'

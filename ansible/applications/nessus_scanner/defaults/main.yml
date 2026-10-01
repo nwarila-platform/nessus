@@ -108,6 +108,7 @@ nessus_scanner_defaults:
     disable_api: 'no'
     disable_frontend: 'false'
     ui_theme: 'track_os_setting'
+
     #endregion --- [ Settings: User Interface ] ---------------------------------------------- #
 
     #region ------ [ Settings: Password ] ---------------------------------------------------- #
@@ -126,6 +127,7 @@ nessus_scanner_defaults:
     passwd_complexity: 'yes'
     # Hardened: show the last successful and failed sign-ins (AC-9).
     passwd_notifications: 'yes'
+
     #endregion --- [ Settings: Password ] ---------------------------------------------------- #
 
     #region ------ [ Settings: Security ] ---------------------------------------------------- #
@@ -147,6 +149,7 @@ nessus_scanner_defaults:
     # Hardened: require Nessus's FIPS-validated module for database encryption and
     # agent communication (SC-13). It does not change scanning.
     fips_mode: 'enforcing'
+
     #endregion --- [ Settings: Security ] ---------------------------------------------------- #
 
     #region ------ [ Settings: Scanning ] ---------------------------------------------------- #
@@ -172,6 +175,7 @@ nessus_scanner_defaults:
     triggered_scan_child_node_update_freq: '6'
     triggered_scan_node_last_update_advance: '600'
     scan.host_timeout_minutes: '0'
+
     #endregion --- [ Settings: Scanning ] ---------------------------------------------------- #
 
     #region ------ [ Settings: Performance ] ------------------------------------------------- #
@@ -207,6 +211,7 @@ nessus_scanner_defaults:
     db_synchronous_setting: 'NORMAL'
     backend_socket_read_timeout: '60'
     scratchpad_max_size_mb: '0'
+
     #endregion --- [ Settings: Performance ] ------------------------------------------------- #
 
     #region ------ [ Settings: Logging ] ----------------------------------------------------- #
@@ -231,6 +236,7 @@ nessus_scanner_defaults:
     write_coverage_data: 'false'
     plugin_fork_warn_threshold: '1000'
     plugin_fork_trace: '0'
+
     #endregion --- [ Settings: Logging ] ----------------------------------------------------- #
 
     #region ------ [ Settings: Miscellaneous ] ----------------------------------------------- #
@@ -294,10 +300,12 @@ nessus_scanner_defaults:
     offline_mode: 'false'
     perform_global_db_init_integrity_check: 'true'
     preferred_report_format: 'pdf'
+
     #endregion --- [ Settings: Miscellaneous ] ----------------------------------------------- #
 
     #region ------ [ Settings: Custom ] ------------------------------------------------------ #
     acas_classification: ''
+
     #endregion --- [ Settings: Custom ] ------------------------------------------------------ #
 
     #region ------ [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
@@ -306,6 +314,7 @@ nessus_scanner_defaults:
     bw_prevent_core_updates: 'yes'
     bw_prevent_plugin_updates: 'yes'
     track_unique_agents: 'yes'
+
     #endregion --- [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
 
   #endregion --- [ Listener and settings ] --------------------------------------------------- #

@@ -37,7 +37,10 @@
       register: '__nessus_scanner_package__'
 
       ansible.builtin.command:
-        argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
+        argv:
+          - 'rpm'
+          - '-q'
+          - "{{ nessus_scanner_running.package_name }}"
         expand_argument_vars: true
         stdin_add_newline: true
         strip_empty_ends: true
@@ -120,11 +123,13 @@
         validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
-
     # The package leaves its data behind by design; absent means none of it remains. An entry the
     # package removal already took is simply absent here.
+
     - name: 'PROCESS | Remove Everything Under The Install Root'
       loop: "{{ __nessus_scanner_remains__.files | map(attribute='path') | list }}"
+      loop_control:
+        label: "{{ item }}"
 
       ansible.builtin.file:
         access_time_format: '%Y%m%d%H%M.%S'
@@ -167,7 +172,10 @@
       when: not ansible_check_mode
 
       ansible.builtin.command:
-        argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
+        argv:
+          - 'rpm'
+          - '-q'
+          - "{{ nessus_scanner_running.package_name }}"
         expand_argument_vars: true
         stdin_add_newline: true
         strip_empty_ends: true
@@ -200,14 +208,14 @@
       when: not ansible_check_mode
 
       ansible.builtin.assert:
-        that:
-          - __nessus_scanner_package_after__.rc != 0
-          - __nessus_scanner_root_after__.matched == 0
         fail_msg: >-
           The scanner is not absent: package query rc={{ __nessus_scanner_package_after__.rc }},
           entries left under the install root:
           {{ __nessus_scanner_root_after__.files | map(attribute='path') | list }}.
         quiet: true
+        that:
+          - __nessus_scanner_package_after__.rc != 0
+          - __nessus_scanner_root_after__.matched == 0
 
     #endregion --- [ End: Prove Nothing Of The Scanner Remains ] ------------------------------ #
 

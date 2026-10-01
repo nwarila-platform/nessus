@@ -255,12 +255,12 @@
   tags: ['never', 'nessus_data_proof']
   vars:
     __proof_url__: 'https://localhost:8834'
-    # The listener's CA, which the role proved equals the declared CA on its last converge.
+    # The listener's CA, which the role converges to the declared CA.
     __proof_ca__: '/opt/nessus/com/nessus/CA/cacert.pem'
     __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker | default('') }}"
 
   tasks:
-    - name: 'VERIFY | Require A Proof Action And Marker'
+    - name: 'PROCESS | Require A Proof Action And Marker'
       ansible.builtin.assert:
         that:
           - nessus_data_proof | default('') in ['mark', 'verify']
@@ -274,7 +274,7 @@
     # refused sign-in opened none.
     - name: 'PROCESS | Mark Or Verify The Proof Record'
       block:
-        - name: 'BEGIN | Sign In As The Administrator'
+        - name: 'PROCESS | Sign In As The Administrator'
           no_log: true
           register: '__proof_session__'
           ansible.builtin.uri:
@@ -308,7 +308,7 @@
             url: "{{ __proof_url__ }}/folders"
             validate_certs: true
 
-        - name: 'BEGIN | Read The Records Nessus Holds'
+        - name: 'PROCESS | Read The Records Nessus Holds'
           no_log: true
           register: '__proof_folders__'
           ansible.builtin.uri:
@@ -322,7 +322,7 @@
             url: "{{ __proof_url__ }}/folders"
             validate_certs: true
 
-        - name: 'VERIFY | Require The Proof Record In The Scanner Database'
+        - name: 'PROCESS | Require The Proof Record In The Scanner Database'
           ansible.builtin.assert:
             that: >-
               __proof_folder__ in (__proof_folders__.json.folders | map(attribute='name') | list)
@@ -333,7 +333,7 @@
             quiet: true
 
       always:
-        - name: 'CLEANUP | Sign Out'
+        - name: 'PROCESS | Sign Out'
           changed_when: false
           failed_when: false
           no_log: true

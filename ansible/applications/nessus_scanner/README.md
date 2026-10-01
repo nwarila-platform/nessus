@@ -188,7 +188,7 @@ and if PROCESS fails before then, with the loader's temporary directory when the
 RHEL 8 in FIPS mode refuses RC2, 3DES and SHA-1 MACs, the algorithms many tools still use for
 PKCS#12. The mint script writes PBES2/PBKDF2 with AES-256-CBC and a SHA-256 MAC. On 2026-09-30,
 RHEL 8's OpenSSL 1.1.1k decoded that form with FIPS mode forced on. A bundle exported by another
-tool fails at `PROCESS | Decode The Bundle`, and the message names the cause.
+tool fails at `PROCESS | Require The Bundle To Decode`, and the message names the cause.
 
 ## STIG constraints
 
