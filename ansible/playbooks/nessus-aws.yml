@@ -198,8 +198,6 @@
 
     - name: 'PROCESS | Write The Host nftables Ruleset'
       register: '__nessus_nftables_ruleset__'
-      vars:
-        __listener_open__: "{{ (state | default('present') | string | lower | trim) != 'absent' }}"
       ansible.builtin.copy:
         backup: false
         content: |
@@ -217,7 +215,7 @@
                   ip6 saddr ::1 drop
                   meta l4proto { icmp, ipv6-icmp } accept
                   tcp dport {{ ansible_port }} ct state new limit rate 25/second burst 50 packets accept
-          {% if __listener_open__ | bool %}
+          {% if (state | default('present') | string | lower | trim) != 'absent' %}
                   tcp dport {{ nessus_listener_port }} ct state new limit rate 25/second burst 50 packets accept
           {% endif %}
               }
@@ -336,7 +334,7 @@
             http_agent: 'ansible-httpget'
             method: 'POST'
             remote_src: false
-            return_content: true
+            return_content: false
             status_code: [ 200 ]
             timeout: 30
             unredirected_headers: []
@@ -405,7 +403,7 @@
             http_agent: 'ansible-httpget'
             method: 'GET'
             remote_src: false
-            return_content: true
+            return_content: false
             status_code: [ 200 ]
             timeout: 30
             unredirected_headers: []
