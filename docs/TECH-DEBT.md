@@ -161,10 +161,11 @@
     scanner whose registration had just been confirmed: the scanner was already registered
     (`nessuscli fetch --check` answered 0), or `PROCESS | Require The Registration To Succeed`
     passed, in a block with no rescue.
-  - Parity, when the read was removed: where it answered 0, the restart ran exactly as before. Had
-    it ever answered non-zero on a registered scanner, the restart would have run where the
-    readiness require would have failed for certain. A scanner that is genuinely unregistered still
-    fails loudly at END's registration proof.
+  - Parity, when the read was removed: where it answered 0, the restart ran exactly as before. On
+    a registered scanner where it would have answered non-zero, the restart then ran where, with
+    the read, the readiness require would have failed for certain. A scanner that is genuinely
+    unregistered still failed loudly: at the sign-in once its API closed, else at END's registration
+    proof.
   - The stale-'register' restart never ran in a deploy: the three AWS deploys that reached it
     (36765880901, 36773018135, 36837460712) settled on 'ready'. It ran once in a lab run, on a stale
     state made by hand (an account added to a running scanner), which it cleared. It was then

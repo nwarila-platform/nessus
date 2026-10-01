@@ -316,6 +316,7 @@
     - name: 'PROCESS | Mark Or Verify The Proof Record'
       block:
         - name: 'PROCESS | Sign In As The Administrator'
+          changed_when: false
           failed_when: false
           no_log: true
           register: '__proof_session__'
@@ -389,6 +390,7 @@
             validate_certs: true
 
         - name: 'PROCESS | Read The Records Nessus Holds'
+          changed_when: false
           no_log: true
           register: '__proof_folders__'
           ansible.builtin.uri:
