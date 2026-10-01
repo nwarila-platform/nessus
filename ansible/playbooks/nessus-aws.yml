@@ -66,7 +66,7 @@
 
   #region ------ [ Roles ] -------------------------------------------------------------------- #
   roles:
-    # The image account must reach uid 0 through non-interactive sudo; every later play escalates.
+    # The image account must reach uid 0 by non-interactive sudo: every later play escalates.
     - role: 'credential_resolver'
       tags: ['always']
       vars:
@@ -138,24 +138,23 @@
           listener:
             port: "{{ nessus_listener_port }}"
 
-          # What is installed, stated where a reader can see it. The digest is Tenable's published
-          # SHA-256 for this build, verified on the CONTROLLER before the guest is given a copy;
-          # the application repository carries the object at the layout the role composes from
-          # the version. A version bump is these two values and dependencies/aws/artifacts.yml.
+          # The digest is Tenable's published SHA-256 for this build; the application repository
+          # carries the object at the layout the role composes from the version. A version bump
+          # is these two values and dependencies/aws/artifacts.yml.
           installer:
             bucket: "{{ aws_account_id }}-apprepo"
             version: '10.12.4'
             sha256: 'df378dd85dea63c0bd1e07d35262e967dca1a0286d84e783edcf956fa85a5444'
 
-          # Registration entitles the scanner to plugins. Read on the controller; never logged.
+          # Read on the controller; never logged.
           activation_code: "{{ lookup('secret', nessus_secret_prefix ~ '/activation-code.txt') }}"
 
           administrator:
             password: "{{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') }}"
 
           # The HTTPS bundle minted by scripts/mint-nessus-https.sh: a private root CA and the
-          # server certificate it signed, names tcnaw-nessus01, localhost and 127.0.0.1. A re-mint
-          # changes this digest in the same commit that uploads the new bundle.
+          # server certificate it signed, names tcnaw-nessus01, localhost and 127.0.0.1. A
+          # re-mint changes this digest in the same commit that uploads the new bundle.
           certificate:
             bucket: "{{ nessus_objects_bucket }}"
             key: "{{ nessus_objects_prefix }}/nessus-https.p12"
@@ -167,11 +166,9 @@
   #region ------ [ Tasks ] -------------------------------------------------------------------- #
   tasks:
     # The host firewall is nftables itself, not firewalld (decision 2026-10-01, TD-009):
-    # firewalld is masked, and this ruleset is the host's whole filter. It admits SSH, which every
-    # play reaches the host by, and the scanner's listener while the scanner is present;
-    # everything else inbound is dropped, and new connections are rate-limited against floods.
-    # The role knows nothing of firewalls, so it works the same behind any, and these run after
-    # it: under state=absent the listener is closed once the scanner is gone.
+    # firewalld is masked, and this ruleset is the host's whole filter. The role knows nothing of
+    # firewalls, so it works the same behind any, and these run after it: under state=absent the
+    # listener is closed once the scanner is gone.
     - name: 'PROCESS | Install nftables'
       ansible.builtin.dnf:
         name: 'nftables'
@@ -258,7 +255,7 @@
   tags: ['never', 'nessus_data_proof']
   vars:
     __proof_url__: 'https://localhost:8834'
-    # The CA the listener serves -- the role proved it equals the declared CA on its last converge.
+    # The listener's CA, which the role proved equals the declared CA on its last converge.
     __proof_ca__: '/opt/nessus/com/nessus/CA/cacert.pem'
     __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker | default('') }}"
 

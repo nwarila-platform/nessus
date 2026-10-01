@@ -156,8 +156,6 @@
       certificate: "{{ __temp_dir__.path }}/nessus-https-certificate.pem"
       ca: "{{ __temp_dir__.path }}/nessus-https-ca.pem"
     __nessus_scanner_base_url__: "https://localhost:{{ nessus_scanner_running.listener.port | int }}"
-    # The two decisions BEGIN read. The installed version is BEGIN's register, which does not
-    # move when the package is installed below.
     __nessus_scanner_install_required__: >-
       {{ (__nessus_scanner_package__.stdout_lines if __nessus_scanner_package__.rc == 0 else [])
          != [nessus_scanner_running.installer.version] }}
@@ -174,7 +172,7 @@
     __nessus_scanner_settings__: >-
       {{ nessus_scanner_running.settings
          | combine({'xmlrpc_listen_port': nessus_scanner_running.listener.port | string}) }}
-    # The settings this role converges: every declared one except those left to Nessus (~).
+    # Every declared setting but those left to Nessus (~).
     __nessus_scanner_managed__: >-
       {{ __nessus_scanner_settings__ | dict2items | rejectattr('value', 'none') | items2dict }}
     # 'fix --show' is the product's own catalogue: every setting it knows and its effective
@@ -259,12 +257,11 @@
     #endregion --- [ Process: Report The Data Volume Decision ] ------------------------------- #
 
     #region ------ [ Process: Label The Install Root ] ---------------------------------------- #
-    # The install root is normally its own data volume, mounted by linux_disk_manager. A
-    # filesystem made for it carries no SELinux labels, so its mount point shows an unlabelled
-    # root. restorecon labels THAT DIRECTORY, not the tree: the package labels its own files, and
-    # Nessus renames downloads across directories whose policy labels differ, so a recursive
-    # relabel finds drift after every plugin update and never settles (measured 2026-09-30).
-    # Nessus runs unconfined, so those labels change nothing it can reach.
+    # The install root is normally its own data volume's mount point, whose new filesystem has no
+    # SELinux label. restorecon labels THAT DIRECTORY, not the tree: the package labels its own
+    # files, and Nessus renames downloads across directories whose policy labels differ, so a
+    # recursive relabel finds drift after every plugin update and never settles (measured
+    # 2026-09-30). Nessus runs unconfined, so those labels change nothing it can reach.
 
     - name: 'PROCESS | Apply The SELinux Labels Under The Install Root'
       changed_when: __nessus_scanner_relabel__.stdout | length > 0
@@ -321,9 +318,8 @@
     #endregion --- [ Process: Trust The Vendor Signing Key ] ---------------------------------- #
 
     #region ------ [ Process: Adopt The Volume's Scanner, Or Install One ] -------------------- #
-    # The package is installed only when the installed version differs from the pin. The
-    # digest, checked on the controller, proves the bytes are the ones pinned; the copy module
-    # checks its own transfer to the guest. The signature, checked on the guest copy dnf
+    # The digest, checked on the controller, proves the bytes are the ones pinned; the copy
+    # module checks its own transfer to the guest. The signature, checked on the guest copy dnf
     # installs, must be by the pinned vendor key: any key the host trusts would satisfy dnf
     # (measured 2026-10-01 with a distribution-signed RPM). allow_downgrade because the pin is
     # authoritative both ways.
@@ -391,7 +387,6 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    # Fails before a byte is shipped: an object that changed under an unchanged pin stops here.
     - name: 'PROCESS | Require The Controller Copy Of The Installer To Match Its Pin'
       when:
         - not ansible_check_mode
@@ -550,8 +545,8 @@
 
     # The package's post-install step EXECUTES its bundled OpenSSL moments after unpacking it,
     # and fapolicyd trusts a file by its RPM digest only once it has learned of it, so on a STIG
-    # host that step can be denied mid-transaction. Refreshing the trust database and checking for
-    # the file the step writes turns a silent partial install into a repaired one.
+    # host that step can be denied mid-transaction. Refreshing the trust database and checking
+    # for the file the step writes turns a silent partial install into a repaired one.
     - name: 'PROCESS | Refresh The fapolicyd Trust Database After The Install'
       changed_when: true
       when:
@@ -609,9 +604,9 @@
 
     #region ------ [ Process: Start The Service ] --------------------------------------------- #
     # Started before anything is configured, because the settings store does not exist until the
-    # service has run once. 'nessuscli fix' answers "global.db is not yet initialized" for tens of
-    # seconds after a first start (measured 2026-09-30), so a value read back is the only proof the
-    # store is up.
+    # service has run once. 'nessuscli fix' answers "global.db is not yet initialized" for tens
+    # of seconds after a first start (measured 2026-09-30), so a value read back is the only
+    # proof the store is up.
 
     - name: 'PROCESS | Enable And Start The Scanner Service'
       when: not (ansible_check_mode and __nessus_scanner_install_required__ | bool)
@@ -647,12 +642,11 @@
     #endregion --- [ Process: Start The Service ] --------------------------------------------- #
 
     #region ------ [ Process: Converge Every Setting ] ---------------------------------------- #
-    # Every setting this Nessus has is declared: the role's defaults name each one at the
-    # product's own value, the playbook overrides any of them by name, and ~ leaves one to
-    # Nessus. 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a
-    # real one), so a declared name this Nessus does not have is refused instead of being kept
-    # silently. Read once and write only what differs; 'fix --set' itself refuses a value outside
-    # the setting's range (measured 2026-10-01).
+    # Every setting this Nessus has is declared in the role defaults, and ~ leaves one to Nessus.
+    # 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a real one),
+    # so a declared name this Nessus does not have is refused instead of being kept silently.
+    # Read once and write only what differs; 'fix --set' itself refuses a value outside the
+    # setting's range (measured 2026-10-01).
 
     - name: 'PROCESS | Read The Settings Catalogue'
       changed_when: false
@@ -706,8 +700,7 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    # A version bump can add settings. They keep the product's values until declared, and this
-    # names them so the declaration can catch up.
+    # A version bump can add settings; this names them so the declaration can catch up.
     - name: 'PROCESS | Report Settings This Nessus Has That Are Not Declared'
       changed_when: false
       vars:
@@ -755,14 +748,13 @@
     #endregion --- [ Process: Converge Every Setting ] ---------------------------------------- #
 
     #region ------ [ Process: Import The Declared HTTPS Certificate ] ------------------------- #
-    # Fetched, checked and copied exactly as the installer is. The bundle is decoded on the guest
-    # by the system OpenSSL, the FIPS-validated module, with its password on stdin so it never
-    # appears in a process list. import-certs itself refuses a key that does not open the
-    # certificate, a CA that did not sign it, or an expired certificate (measured 2026-10-01). It
-    # accepts the rest, so BEFORE Nessus is told about any of it the bundle must hold exactly one
-    # CA, be in date for a day, and name this host and localhost. Imported only when what Nessus
-    # serves differs: each import leaves a timestamped backup of the previous material (measured
-    # 2026-09-30), so a converge that re-imported would report a change and accumulate files.
+    # Fetched, checked and copied exactly as the installer is, then decoded on the guest with its
+    # password on stdin, so the password never appears in a process list. import-certs itself
+    # refuses a key that does not open the certificate, a CA that did not sign it, or an expired
+    # certificate (measured 2026-10-01); it accepts the rest, so the checks below run BEFORE
+    # Nessus is told about any of it. Imported only when what Nessus serves differs: each import
+    # leaves a timestamped backup of the previous material (measured 2026-09-30), so a converge
+    # that re-imported would report a change and accumulate files.
 
     - name: 'PROCESS | Fetch The Certificate Bundle To The Controller'
       become: false
@@ -998,8 +990,8 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    # The plaintext key goes the moment it is done. END removes it again in case a failure skipped
-    # this, and the loader removes its whole temporary directory either way.
+    # The plaintext key goes the moment it is done. END removes it again in case a failure
+    # skipped this, and the loader removes its whole temporary directory either way.
     - name: 'PROCESS | Remove The Decoded Private Key'
       changed_when: false
       loop:
@@ -1086,8 +1078,7 @@
     #endregion --- [ Process: Converge The One Administrator Account ] ------------------------ #
 
     #region ------ [ Process: Apply Pending Restarts Before Registration ] -------------------- #
-    # A settings change, a new certificate or a new account takes effect only when the service
-    # restarts; the handler runs once however many of them changed, and never when none did.
+    # A settings change, a new certificate or a new account takes effect only on a restart.
 
     - name: 'PROCESS | Apply Pending Restarts Before Registration'
       ansible.builtin.meta: 'flush_handlers'
@@ -1116,9 +1107,8 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    # Measured before the download: an activation code is spent by the registration that uses it,
-    # so a disk too small must fail here rather than half-way through a registration that has
-    # already consumed the code.
+    # Checked first because registration spends the activation code: a disk too small must fail
+    # here, not half-way through a registration that has already consumed it.
     - name: 'PROCESS | Read The Space Free Under The Install Root'
       changed_when: false
       check_mode: false
@@ -1478,10 +1468,9 @@
 #region ------ [ Always: Apply Any Pending Restart ] ------------------------------------------ #
 # The flush above is reached only when PROCESS gets that far. A converge that changed the
 # service's configuration and then failed before it would leave the product running its old
-# settings, and the NEXT converge would write nothing -- the values are already correct -- so it
-# would never restart either. An 'always' runs even when the block failed, and a handler that
-# already ran is not run again, so a successful converge still restarts exactly once. Restart
-# only: cleanup stays under END.
+# settings, and the NEXT converge, finding the values already correct, would never restart it.
+# A handler that already ran does not run again, so a successful converge still restarts
+# exactly once. Restart only: cleanup stays under END.
 
   # Begin the 'Always' block
   always:

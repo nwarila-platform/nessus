@@ -2,19 +2,19 @@
 # File: '{{ role_path }}/defaults/main.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# Lowest-precedence configuration for the Nessus scanner role. The v3 loader merges the OS overlay
-# in vars/ over this map and publishes the result as 'nessus_scanner_running'; tasks read only the
-# merged map, never these keys directly.
+# Lowest-precedence configuration for the Nessus scanner role. The v3 loader merges the OS
+# overlay in vars/ over this map and publishes the result as 'nessus_scanner_running'; tasks
+# read only the merged map, never these keys directly.
 #
 # WHAT BELONGS HERE: values that are universally safe -- true for anyone running this role,
-# whatever their account, bucket or artifact layout. The product's identity and paths, the vendor
-# signing key, the listener, the TLS floor and the bounds on every wait.
+# whatever their account, bucket or artifact layout. The product's identity and paths, the
+# vendor signing key, the listener, the TLS floor and the bounds on every wait.
 #
 # WHAT DOES NOT: anything deployment-specific. Artifact locations, digests and secret values
-# change with every site. A concrete default for those is not universally safe -- it is one site's
-# value wearing a default's clothes. The interface declares empty values here; the PLAYBOOK
-# supplies the real values where they are visible and changeable. See meta/main.yml and
-# tasks/validate.yml.
+# change with every site. A concrete default for those is not universally safe -- it is one
+# site's value wearing a default's clothes. The interface declares empty values here; the
+# PLAYBOOK supplies the real values where they are visible and changeable. See meta/main.yml
+# and tasks/validate.yml.
 #
 # =========================================================================================== #
 ---
@@ -36,8 +36,8 @@ nessus_scanner_defaults:
 
   #region ------ [ Vendor signing key ] ------------------------------------------------------ #
   # A STIG host checks signatures on local packages too (localpkg_gpgcheck), so the RPM installs
-  # only once Tenable's key is trusted. The key is public and ships in files/; rpm_key refuses it
-  # unless its fingerprint is this one. Tenable signs Nessus 10.4 and later with this 4096-bit key.
+  # only once Tenable's key is trusted. The key is public and ships in files/; rpm_key refuses
+  # it unless its fingerprint is this one, Tenable's 4096-bit key for Nessus 10.4 and later.
   signing_key:
     file: 'tenable-4096.gpg'
     fingerprint: '9E53A34068D18A6E0EE45E41A021B5142F12969D'
@@ -63,10 +63,10 @@ nessus_scanner_defaults:
   #endregion --- [ Administrator ] ----------------------------------------------------------- #
 
   #region ------ [ HTTPS certificate ] ------------------------------------------------------- #
-  # ONE password-protected PKCS#12 bundle: the server key, the server certificate and exactly one
-  # CA certificate that signed it (scripts/mint-nessus-https.sh mints this shape). Fetched like the
-  # installer, decoded on the guest with the system's FIPS-validated OpenSSL, and imported only
-  # when what Nessus serves differs from it.
+  # ONE password-protected PKCS#12 bundle: the server key, the server certificate and exactly
+  # one CA certificate that signed it (scripts/mint-nessus-https.sh mints this shape). Fetched
+  # like the installer, decoded on the guest with the system's FIPS-validated OpenSSL, and
+  # imported only when what Nessus serves differs from it.
   certificate:
     bucket: ''
     key: ''
@@ -79,12 +79,12 @@ nessus_scanner_defaults:
   listener:
     port: 8834
 
-  # EVERY setting this Nessus has (10.12.4: the 157 in its own catalogue, 'nessuscli fix --show',
-  # and 5 it stores at install without cataloguing), each at the product's own value unless a
-  # comment says why not. The role converges all of them on every converge: it reads the
-  # catalogue and the store once and writes only what differs, and 'fix --set' refuses a value
-  # outside a setting's range. A name this Nessus does not have is refused, because 'fix --set'
-  # would store it silently.
+  # EVERY setting this Nessus has, each at the product's own value unless a comment says why
+  # not: for 10.12.4, the 157 in its own catalogue ('nessuscli fix --show') and 5 it stores at
+  # install without cataloguing, but for timeout.<PLUGIN_ID>, a per-plugin template, and
+  # xmlrpc_listen_port, which listener.port sets (measured 2026-10-01): 160 in all. Every
+  # converge writes whichever differ; 'fix --set' refuses a value outside a setting's range, and
+  # a name this Nessus does not have is refused because 'fix --set' would store it silently.
   #   * To change one, set it by name in the playbook's nessus_scanner.settings.
   #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state
   #     Nessus rewrites itself, so pinning the lab's values would be wrong here.
@@ -92,7 +92,6 @@ nessus_scanner_defaults:
   #     left at the product's value are listed in the role README, with the reason.
   #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
   #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
-  # xmlrpc_listen_port is derived from listener.port and must not be named here too.
   settings:
     #region ------ [ Settings: User Interface ] ---------------------------------------------- #
     login_banner: ''
@@ -319,7 +318,7 @@ nessus_scanner_defaults:
     settings_pause_seconds: 5
     # Registration downloads the full plugin set before it returns.
     registration_seconds: 3600
-    # Compiling that plugin set is the long pole of a first converge: 180 x 20 s is an hour.
+    # Compiling that plugin set is the long pole of a first converge; these allow an hour.
     ready_attempts: 180
     ready_pause_seconds: 20
 
@@ -339,8 +338,8 @@ nessus_scanner_defaults:
   # Where 'nessuscli import-certs' places what the listener serves.
   served_certificate_path: '/opt/nessus/com/nessus/CA/servercert.pem'
   served_ca_path: '/opt/nessus/com/nessus/CA/cacert.pem'
-  # The system OpenSSL, deliberately not the copy Nessus bundles: it is the FIPS-validated module,
-  # so a bundle it decodes is one this host's crypto policy accepts.
+  # The system OpenSSL, deliberately not the copy Nessus bundles: it is the FIPS-validated
+  # module, so a bundle it decodes is one this host's crypto policy accepts.
   openssl_path: '/usr/bin/openssl'
 
   #endregion --- [ Product identity ] -------------------------------------------------------- #

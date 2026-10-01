@@ -79,9 +79,9 @@
     quiet: true
 
 # With passwd_complexity on, Nessus accepts any 3 of the 4 character classes (measured
-# 2026-10-01); the ASD STIG requires all 4, which Nessus would never refuse, so it is checked here.
-# Length needs no check of its own: account creation and the password reset refuse a password
-# shorter than min_password_len and say so (measured 2026-10-01).
+# 2026-10-01); the ASD STIG requires all 4, so this checks them. Length needs no check of its
+# own: account creation and the password reset refuse a password shorter than min_password_len
+# and say so (measured 2026-10-01).
 - name: 'VALIDATE | Require An Administrator Password Of All Four Character Classes'
   when:
     - (state | default('present') | string | lower | trim) == 'present'

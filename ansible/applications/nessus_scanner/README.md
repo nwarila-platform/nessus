@@ -1,25 +1,25 @@
 # `nessus_scanner` role
 
 Installs Tenable Nessus at a pinned version on a STIG-hardened RHEL 8 host and brings it up as a
-registered scanner serving HTTPS with a certificate the deployment owns. In one converge it:
+registered scanner serving HTTPS with a certificate the deployment owns. In one converge it trusts
+Tenable's RPM signing key, refused unless its fingerprint is the pinned one, and installs the
+pinned RPM; starts the service and converges **every** Nessus setting to its declaration; imports
+the declared certificate when what Nessus serves differs; creates the one administrator account
+from the command line **before** registration, because the web tier reads whether setup is
+complete when the service starts; registers the scanner with its activation code and fetches the
+plugins; waits until Nessus reports ready **over HTTPS validated against the declared CA and
+hostname**, restarting once if a registered scanner settles on a stale `register` state (measured
+2026-09-30); proves the account by signing in to the API, converging its password if it moved;
+and verifies the result against the machine: the installed version, the service, the
+registration, and the fingerprint of the certificate the listener actually serves. Every step
+reads before it writes, so a converged host reports no change.
 
-1. trusts Tenable's RPM signing key, refused unless its fingerprint is the pinned one;
-2. installs the pinned RPM: its SHA-256 is verified on the controller, which hands the guest a
-   copy, and the guest requires the signature of the pinned vendor key before `dnf` installs it;
-3. starts the service and converges **every** Nessus setting to its declaration (below);
-4. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
-   certificate and CA as a set, and imports them into Nessus when what it serves differs;
-5. creates the one administrator account from the command line, **before** registration, because
-   the web tier reads whether setup is complete when the service starts;
-6. registers the scanner with its activation code and fetches the plugins;
-7. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**,
-   restarting once if a registered scanner settles on a stale `register` state (measured
-   2026-09-30);
-8. proves the account by signing in to the API, converging its password if it moved;
-9. verifies the result against the machine: the installed version, the service, the
-    registration, and the fingerprint of the certificate the listener actually serves.
-
-Every step reads before it writes, so a converged host reports no change.
+The controller fetches the RPM and the PKCS#12 certificate bundle from S3 with its own AWS
+credentials, verifies each against its pinned SHA-256, and hands the guest a copy; the guest is
+never given cloud credentials. The guest requires the signature of the pinned vendor key before
+`dnf` installs the RPM. It decodes the bundle with the system's FIPS-validated OpenSSL, and the
+key, certificate and CA are checked as a set. The playbook resolves the activation code and both
+passwords on the controller, and the role never logs them.
 
 ## Data volume
 
@@ -33,7 +33,7 @@ holds a scanner, adopt it; otherwise install one.** It decides before any packag
 from the installation's identity: `var/nessus/uuid` and `var/nessus/master.key`.
 
 | The volume holds | The role |
-|---|---|
+| --- | --- |
 | No identity | Installs a fresh scanner onto it |
 | An identity this OS has never run (the OS was replaced) | **Adopts** it: reinstalls the package over the tree, then requires the identity to have come through byte for byte |
 | The identity of the scanner this OS already runs | Converges it in place |
@@ -48,16 +48,56 @@ the served certificate all carried over. The only changes were the package, the 
 the service, which live on the OS disk.
 
 `restorecon` labels the install root on every converge and changes only what policy disagrees
-with, because a filesystem made for it starts unlabelled. `state=absent` empties the install root
-rather than removing it, because the mount point is the disk role's.
+with, because a filesystem made for it starts unlabelled.
 
-## Settings
+## Composition and prerequisites
 
-Every setting Nessus has is declared, so every one is configured through CI/CD. For 10.12.4 that
-is 160 settings: the 157 in the product's own catalogue (`nessuscli fix --show`) and 5 it stores at
-install without cataloguing. They live in `defaults/main.yml`, grouped by the product's own
-categories, each at the product's own value unless a comment says otherwise. To change one, set it
-by name in the playbook, and the next deploy converges it:
+The role is overlaid into a version-pinned checkout of `nwarila-platform/ansible-framework` at run
+time; it is not run directly from this repository. `tasks/main.yml` is the fleet's shared role
+loader: it merges `defaults/main.yml`, the OS overlay in `vars/` and the caller's `nessus_scanner`
+map, runs `tasks/validate.yml`, creates the guest temporary directory the role stages into, and
+runs `<state>_redhat.yml`.
+
+The shipped `ansible/playbooks/nessus-aws.yml` prepares the host with the framework's
+`credential_resolver`, `host_readiness` and `os_bootstrap`, which installs the Python 3.12 the
+inventory names because RHEL 8's own Python is below ansible-core's floor. `linux_disk_manager`
+then mounts the scanner's data volume at `/opt/nessus` (except under `state=absent`), and
+`nessus_scanner` runs in a play of its own. The host firewall is not the role's: that play's tasks
+run after the role, mask firewalld and load a default-drop nftables ruleset that admits SSH and,
+while the scanner is present, its listener (TD-009 in `docs/TECH-DEBT.md`).
+
+The target is RHEL 8 from the CIS RHEL 8 STIG image, whose constraints shape the role (below). The
+controller's Ansible environment needs the `amazon.aws` collection with supported
+`boto3`/`botocore` for the S3 fetch.
+
+## What the caller supplies
+
+Required deployment-specific inputs carry an account id or change with every site, so the
+playbook states them where a reader can see them: the installer (bucket, three-part version,
+digest), the activation code, the administrator password, and the HTTPS bundle (bucket, object
+key, digest and password). The installer's object key defaults to the application repository's
+`<Publisher>/<Application>/<version>/<file>` layout, with the token `<version>` replaced by
+`installer.version` at fetch. The administrator's username defaults to `nessusadmin` and the
+listener to port 8834; the caller may change either, and any setting by name (below). Nothing
+under this role names an account, bucket or secret.
+
+`tasks/validate.yml` enforces these inputs on the controller before anything touches the guest,
+and a failure names the input, never its value. `installer.version` is required for every state;
+the artifact sources and secrets only for `present`. [`meta/main.yml`](meta/main.yml) describes
+each input.
+
+## Configuration
+
+Universally safe values live in [`defaults/main.yml`](defaults/main.yml): the product's identity
+and paths, the vendor signing key and its pinned fingerprint, the listener, the bounds on every
+wait, the free space registration needs (10 GiB), and every setting.
+
+Every setting Nessus has is declared, so every one is configured through CI/CD. For 10.12.4 that is
+160: the 157 in the product's own catalogue (`nessuscli fix --show`) and the 5 it stores at install
+without cataloguing, less two that are not settings of their own -- `timeout.<PLUGIN_ID>`, a
+per-plugin template, and `xmlrpc_listen_port`, which `listener.port` sets (measured 2026-10-01).
+They are grouped by the product's own categories, each at the product's own value unless a comment
+says otherwise. To change one, set it by name in the playbook, and the next deploy converges it:
 
 ```yaml
 nessus_scanner:
@@ -67,6 +107,7 @@ nessus_scanner:
 ```
 
 On every converge the role:
+
 - reads the catalogue and the store once, rather than once per setting;
 - refuses a declared name this Nessus does not have, because `fix --set` would store a typo
   silently;
@@ -78,7 +119,8 @@ On every converge the role:
 the hardware (`engine.max`, `engine.min`, `global.max_hosts`, `global.max_portscanners`,
 `global.max_simult_tcp_sessions`), and `plugin_detail_locale_current`, which is state Nessus
 rewrites itself. Per-plugin timeouts are declared as `timeout.<plugin id>`. Values must be quoted,
-because an unquoted `yes` is a YAML boolean.
+because an unquoted `yes` is a YAML boolean. The listener port has one source, `listener.port`, so
+naming `xmlrpc_listen_port` in `settings` is refused.
 
 ### Hardening
 
@@ -88,7 +130,7 @@ for TLS, and FIPS 140. Each hardened value is marked `Hardened:` in `defaults/ma
 was proven in the lab on 2026-10-01 (RHEL 8, Nessus 10.12.4) without breaking the role or sign-in.
 
 | Setting | Value | Control | Measured in the lab |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ssl_mode` | `tls_1_3` | NIST SP 800-52r2 | TLS 1.2 refused with a protocol-version alert; TLS 1.3 negotiates `TLS_AES_256_GCM_SHA384` and validates against the declared CA |
 | `fips_mode` | `enforcing` | SC-13 | Nessus runs and its database stays readable |
 | `strict_certificate_validation` | `yes` | SC-23 | Linking to a manager then needs that manager's CA trusted |
@@ -109,6 +151,7 @@ with `auto_update_ui: no` stops the software replacing itself. The installed ver
 pinned RPM, which fapolicyd trusts by its digest.
 
 Left at the product's value on purpose, because the hardened value breaks common use:
+
 - `niap_mode: enforcing` pins TLS 1.2 (`ssl_mode: niap`), which conflicts with TLS 1.3 only.
 - `audit_file_signature_check: yes` refuses unsigned custom audit files, a common compliance
   workflow.
@@ -119,9 +162,10 @@ Left at the product's value on purpose, because the hardened value breaks common
 ## HTTPS
 
 The certificate is ONE password-protected PKCS#12 bundle: the server key, the server certificate
-and the single CA that signed it. [`scripts/mint-nessus-https.sh`](../../../scripts/mint-nessus-https.sh)
-mints exactly that shape. It creates a private root CA, signs a server certificate that names the
-host, `localhost` and `127.0.0.1`, and destroys the CA key.
+and the single CA that signed it.
+[`scripts/mint-nessus-https.sh`](../../../scripts/mint-nessus-https.sh) mints exactly that shape.
+It creates a private root CA, signs a server certificate that names the host, `localhost` and
+`127.0.0.1`, and destroys the CA key.
 
 The role never trusts the certificate on its word:
 
@@ -136,8 +180,9 @@ The role never trusts the certificate on its word:
 - finally the leaf certificate the listener serves in a live handshake must carry the declared
   fingerprint.
 
-The plaintext key exists only between decoding and import and is removed in an `always` block;
-the loader removes its whole temporary directory when the role ends as well.
+The plaintext key exists only between decoding and import: it is removed once the import is done,
+again under END's `always`, and with the loader's temporary directory when the role ends, whatever
+the outcome.
 
 ### Why the bundle is AES-256 and not the PKCS#12 default of older tools
 
@@ -149,27 +194,63 @@ tool fails at `PROCESS | Decode The Bundle`, and the message names the cause.
 ## STIG constraints
 
 | Constraint | How the role meets it |
-|---|---|
+| --- | --- |
 | `localpkg_gpgcheck` | Tenable's key is trusted by pinned fingerprint before `dnf` installs the RPM |
 | fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed and the vendor's FIPS-module step is re-run if it was denied mid-transaction |
 | `noexec` on `/tmp`, `/var/tmp`, `/home` | Nothing staged in the loader's temporary directory is executed |
 | FIPS mode | System OpenSSL decodes the bundle; RSA-3072 and SHA-256 throughout |
-| Host firewall | Not the role's. The playbook masks firewalld and owns a default-drop nftables ruleset, so the role works the same behind any firewall |
+| Host firewall | Not the role's: the playbook's nftables ruleset is the host's filter, so the role works the same behind any firewall |
 
-## Inputs
+## State
 
-See [`meta/main.yml`](meta/main.yml) for the required inputs and
-[`defaults/main.yml`](defaults/main.yml) for everything with a safe default. Nothing under this
-role names an account, bucket or secret; the playbook supplies them.
+- `present` (default) — install, configure, register and prove the scanner as described above.
+- `absent` — stop and disable the service, remove the package, remove everything under the
+  install root and withdraw the vendor signing key, then prove that neither the package nor any
+  entry under the install root remains. The install root itself stays, because it is the data
+  volume's mount point and the disk role's. The registration is not released with Tenable. A
+  second run reports no change.
+- `clean` — remove only the superseded certificate material each import leaves behind: the
+  timestamped `servercert.pem.<epoch>` and `serverkey.pem.<epoch>` copies (measured 2026-09-30),
+  which include superseded private keys. The product, its data and its configuration are
+  untouched.
 
-| State | Does |
-|---|---|
-| `present` | Everything above |
-| `absent` | Stops and removes the service, the package, the whole install root and the signing key; proves none remains |
-| `clean` | Removes the superseded certificate material each import leaves behind |
+`present` and `absent` support `--check`. Reads run for real, setting drift is reported as
+changed, and END, which proves what PROCESS did, is skipped. The S3 fetches download nothing under
+`--check`, so certificate and administrator-password drift go unreported, and when the pinned
+version is not installed the steps that need it are skipped. TD-010 records what check mode does
+not cover, including that the fetch path itself is proven only in the lab, where it is replaced.
 
-## Licence model
+## Design invariants
 
-Nessus Professional and Essentials hold exactly one account, so `administrator` is *the* account.
-The product refuses a second account, and a converge that meets that refusal fails naming it.
-Every account write is judged by what the product prints as well as by its exit status.
+- **One administrator account.** Nessus Professional and Essentials hold exactly one account, so
+  `administrator` is *the* account. The product refuses a second, and a converge that meets that
+  refusal fails naming it. Every account write is judged by what the product prints as well as by
+  its exit status.
+- **The pinned version is authoritative both ways.** The package is installed whenever the
+  installed version differs from `installer.version`, older or newer, so `dnf` runs with
+  `allow_downgrade`, and END fails if the installed version is not the pin.
+- **Only the pinned vendor key's signature.** `dnf` accepts a package signed by any key the host
+  trusts (measured 2026-10-01 with a distribution-signed RPM), so before installing, the role
+  requires `rpm --checksig` to report a good signature by the pinned key's ID.
+- **The identity survives every package transaction.** Whenever a package transaction runs over
+  an existing identity (an adopted volume, or a version change in place), `var/nessus/uuid` and
+  `var/nessus/master.key` are read before and after it and must come through byte for byte, or the
+  converge fails naming the file.
+- **Cleanup is tidiness, not recovery.** Cleanup lives under END's `always`, and an unrescued
+  PROCESS failure skips END, so the controller's staging directory under `/tmp` is the accepted
+  residue. The loader removes its guest temporary directory, and with it any decoded key, whatever
+  the outcome. PROCESS carries an `always` of its own for one thing only: applying a restart a
+  change already notified, so a failed converge does not leave Nessus running its old
+  configuration.
+
+## Verification
+
+```bash
+export PATH="$PATH:/root/.local/bin"
+yamllint -c .yamllint.yml ansible
+# ansible-lint runs inside the pinned framework tree scripts/compose-and-run.sh composes, so
+# refresh the role's overlay there first.
+rsync -a --delete ansible/applications/nessus_scanner/ \
+  .compose/ansible-framework/applications/nessus_scanner/
+(cd .compose/ansible-framework && ansible-lint applications/nessus_scanner)
+```

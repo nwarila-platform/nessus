@@ -2,14 +2,13 @@
 # File: '{{ role_path }}/handlers/main.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# The scanner reads its listener, TLS floor and certificate once, at start. Tasks in
-# present_redhat.yml write those, and none takes effect until the service restarts, so each
-# notifies this handler rather than a result a growing condition would have to test.
+# The scanner reads its settings and its certificate once, at start, and its web tier reads
+# whether setup is complete only then (measured 2026-09-30). Tasks in present_redhat.yml change
+# all three -- settings, certificate, the account -- and none takes effect until the service
+# restarts, so each notifies this handler rather than a result a growing condition must test.
 #
-# A handler runs once however many times it was notified: a converge that moves a setting AND
-# imports a certificate restarts the service exactly once, and a converge that changes neither
-# never restarts it. present_redhat.yml flushes it before registration, so the readiness wait
-# that follows judges the restarted service.
+# present_redhat.yml flushes it before registration, so the readiness wait that follows judges
+# the restarted service.
 #
 # =========================================================================================== #
 ---

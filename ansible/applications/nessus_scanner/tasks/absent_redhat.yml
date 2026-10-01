@@ -6,9 +6,9 @@
 #
 # BEGIN reads the machine, PROCESS removes the service, the package, everything the product left
 # under its install root (plugins, scan data, the imported certificate) and the vendor signing
-# key, and END proves none of it remains. END is deliberately ungated, so a host where the scanner
-# was already absent proves the same state as one this run emptied, and a second absent run
-# reports no change.
+# key, and END proves none of it remains. END is deliberately ungated, so a host where the
+# scanner was already absent proves the same state as one this run emptied, and a second absent
+# run reports no change.
 #
 # The install root itself is normally the MOUNT POINT of the scanner's data volume, which
 # linux_disk_manager owns: removing that directory would fail while mounted and is not this
