@@ -2,29 +2,30 @@
 # File: '{{ role_path }}/defaults/main.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
-# Lowest-precedence configuration for the Nessus scanner role. The v3 loader merges the OS overlay
-# in vars/ over this map and publishes the result as 'nessus_scanner_running'; tasks read only the
-# merged map, never these keys directly.
+# Lowest-precedence configuration for the Nessus scanner role. The v3 loader merges the OS
+# overlay in vars/ over this map and publishes the result as 'nessus_scanner_running'; tasks
+# read only the merged map, never these keys directly.
 #
 # WHAT BELONGS HERE: values that are universally safe -- true for anyone running this role,
-# whatever their account, bucket or artifact layout. The product's identity and paths, the vendor
-# signing key, the listener, the TLS floor and the bounds on every wait.
+# whatever their account, bucket or artifact layout. The product's identity and paths, the
+# vendor signing key, the listener, the TLS floor and the bounds on every wait.
 #
 # WHAT DOES NOT: anything deployment-specific. Artifact locations, digests and secret values
-# change with every site. A concrete default for those is not universally safe -- it is one site's
-# value wearing a default's clothes. The interface declares empty values here; the PLAYBOOK
-# supplies the real values where they are visible and changeable. See meta/main.yml and
-# tasks/validate.yml.
+# change with every site. A concrete default for those is not universally safe -- it is one
+# site's value wearing a default's clothes. The interface declares empty values here; the
+# PLAYBOOK supplies the real values where they are visible and changeable. See meta/main.yml
+# and tasks/validate.yml.
 #
 # =========================================================================================== #
 ---
 nessus_scanner_defaults:
 
   #region ------ [ Installer ] --------------------------------------------------------------- #
-  # The RPM, fetched from S3 by the CONTROLLER and handed to the guest, which verifies the pinned
-  # digest immediately before dnf installs it. The key follows the application repository's
-  # <Publisher>/<Application>/<version>/<file> layout, and the literal token <version> is replaced
-  # with installer.version at fetch, so a version bump is one value and one digest.
+  # The RPM, fetched from S3 by the CONTROLLER, which verifies the pinned digest before it hands
+  # the guest a copy; the guest checks the vendor's signature on it. The key follows the
+  # application repository's <Publisher>/<Application>/<version>/<file> layout, and the literal
+  # token <version> is replaced with installer.version at fetch, so a version bump is one value
+  # and one digest.
   installer:
     bucket: ''
     key: 'Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm'
@@ -35,8 +36,8 @@ nessus_scanner_defaults:
 
   #region ------ [ Vendor signing key ] ------------------------------------------------------ #
   # A STIG host checks signatures on local packages too (localpkg_gpgcheck), so the RPM installs
-  # only once Tenable's key is trusted. The key is public and ships in files/; rpm_key refuses it
-  # unless its fingerprint is this one. Tenable signs Nessus 10.4 and later with this 4096-bit key.
+  # only once Tenable's key is trusted. The key is public and ships in files/; rpm_key refuses
+  # it unless its fingerprint is this one, Tenable's 4096-bit key for Nessus 10.4 and later.
   signing_key:
     file: 'tenable-4096.gpg'
     fingerprint: '9E53A34068D18A6E0EE45E41A021B5142F12969D'
@@ -52,7 +53,7 @@ nessus_scanner_defaults:
 
   #region ------ [ Administrator ] ----------------------------------------------------------- #
   # Nessus Professional and Essentials hold exactly ONE account, so this is the account, not one
-  # of several: a converge that finds a different one refuses rather than guess which is meant.
+  # of several: the product refuses a second, and a converge that meets one fails naming that.
   # The password is supplied by the playbook; leading and trailing whitespace is not part of it,
   # because the product's command line reads it a line at a time.
   administrator:
@@ -62,10 +63,10 @@ nessus_scanner_defaults:
   #endregion --- [ Administrator ] ----------------------------------------------------------- #
 
   #region ------ [ HTTPS certificate ] ------------------------------------------------------- #
-  # ONE password-protected PKCS#12 bundle: the server key, the server certificate and exactly one
-  # CA certificate that signed it (scripts/mint-nessus-https.sh mints this shape). Fetched like the
-  # installer, decoded on the guest with the system's FIPS-validated OpenSSL, and imported only
-  # when what Nessus serves differs from it.
+  # ONE password-protected PKCS#12 bundle: the server key, the server certificate and exactly
+  # one CA certificate that signed it (scripts/mint-nessus-https.sh mints this shape). Fetched
+  # like the installer, decoded on the guest with the system's FIPS-validated OpenSSL, and
+  # imported only when what Nessus serves differs from it.
   certificate:
     bucket: ''
     key: ''
@@ -78,26 +79,246 @@ nessus_scanner_defaults:
   listener:
     port: 8834
 
-  # Asserted with 'nessuscli fix' on every converge; a setting not named here is left alone.
-  # xmlrpc_listen_port is derived from listener.port and must not be named here too.
+  # EVERY setting this Nessus has, each at the product's own value unless a comment says why
+  # not: for 10.12.4, the 157 in its own catalogue ('nessuscli fix --show') and 5 it stores at
+  # install without cataloguing, but for timeout.<PLUGIN_ID>, a per-plugin template, and
+  # xmlrpc_listen_port, which listener.port sets (measured 2026-10-01): 160 in all. Every
+  # converge writes whichever differ; 'fix --set' refuses a value outside a setting's range, and
+  # a name this Nessus does not have is refused because 'fix --set' would store it silently.
+  #   * To change one, set it by name in the playbook's nessus_scanner.settings.
+  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state
+  #     Nessus rewrites itself, so pinning the lab's values would be wrong here.
+  #   * 'Hardened:' marks a value changed from the product's for a common STIG control. Controls
+  #     left at the product's value are listed in the role README, with the reason.
+  #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
+  #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
   settings:
-    # TLS 1.2 is the floor; TLS 1.3 is negotiated when the client offers it.
-    ssl_mode: 'tls_1_2'
+
+    #region ------ [ Settings: User Interface ] ---------------------------------------------- #
+    login_banner: ''
+    scan_vulnerability_groups: 'yes'
+    scan_vulnerability_groups_mixed: 'yes'
+    allow_post_scan_editing: 'yes'
+    disable_ntp: 'true'  # deprecated by Tenable
+    disable_xmlrpc: 'false'  # deprecated by Tenable for disable_api
+    disable_ui: 'false'  # deprecated by Tenable for disable_api
+    # xmlrpc_listen_port: derived from listener.port; naming it here is refused.
+    listen_address: '0.0.0.0'
+    plugin_upload: 'yes'  # deprecated by Tenable
+    global.max_web_users: '1024'
+    disable_api: 'no'
+    disable_frontend: 'false'
+    ui_theme: 'track_os_setting'
+
+    #endregion --- [ Settings: User Interface ] ---------------------------------------------- #
+
+    #region ------ [ Settings: Password ] ---------------------------------------------------- #
+    # Hardened: end idle sessions after 10 minutes, the ASD STIG's limit for an
+    # administrator (APSC-DV-000080); Essentials' one account is one.
+    xmlrpc_idle_session_timeout: '10'
+    # Hardened: lock an account after 3 consecutive failures (AC-7). The role's own
+    # recovery clears a lock: 'nessuscli chpasswd' unlocks it (lab-measured).
+    user_max_login_attempt: '3'
+    # Hardened: 15 characters minimum (ASD STIG APSC-DV-001680), for the command line...
+    min_password_len: '15'
+    # ...and for the web interface and API.
+    xmlrpc_min_password_len: '15'
+    # Hardened: Nessus then requires 3 of the 4 character classes; validate.yml holds
+    # the declared password to all 4, as the STIG does (IA-5(1)).
+    passwd_complexity: 'yes'
+    # Hardened: show the last successful and failed sign-ins (AC-9).
+    passwd_notifications: 'yes'
+
+    #endregion --- [ Settings: Password ] ---------------------------------------------------- #
+
+    #region ------ [ Settings: Security ] ---------------------------------------------------- #
+    # Hardened: TLS 1.3 only. NIST SP 800-52r2 requires TLS 1.2 and asks for 1.3; this host
+    # refuses 1.2 outright (lab: a TLS 1.2 handshake is refused, 1.3 negotiates AES-256-GCM).
+    ssl_mode: 'tls_1_3'
+    ssl_cipher_list: 'modern'
+    nasl_no_signature_check: 'no'
+    audit_file_signature_check: 'false'
+    cipher_files_on_disk: 'true'
+    # Hardened: at most 3 concurrent sessions per user (AC-10). The role holds one at
+    # a time and signs out. A Security Center-managed scanner may need more.
+    max_sessions_per_user: '3'
+    force_pubkey_auth: 'false'
+    # Hardened: validate certificates even on a first remote link (SC-23). Linking
+    # to a manager then needs that manager's CA to be trusted.
+    strict_certificate_validation: 'yes'
+    niap_mode: 'non-enforcing'
+    # Hardened: require Nessus's FIPS-validated module for database encryption and
+    # agent communication (SC-13). It does not change scanning.
+    fips_mode: 'enforcing'
+
+    #endregion --- [ Settings: Security ] ---------------------------------------------------- #
+
+    #region ------ [ Settings: Scanning ] ---------------------------------------------------- #
+    plugin_output_max_size_kb: '1000'
+    auto_enable_dependencies: 'yes'
+    engine.idle_wait: '60'
+    paused_scan_timeout: '0'
+    pcap.snaplen: '0'
+    cgi_path: '/cgi-bin:/scripts'
+    portscanner.max_ports: '1024'
+    report.max_ports: '1024'
+    reverse_lookup: 'false'
+    rules: '/opt/nessus/etc/nessus/nessusd.rules'
+    silent_dependencies: 'yes'
+    non_simult_ports: '139, 445, 3389'
+    port_range: 'default'
+    safe_checks: 'yes'
+    slice_network_addresses: 'no'
+    severity_basis: 'cvss_v3'
+    audit_trail: 'full'
+    disable_remote_tasks: 'false'
+    triggered_scan_collection_window_hours: '12'
+    triggered_scan_child_node_update_freq: '6'
+    triggered_scan_node_last_update_advance: '600'
+    scan.host_timeout_minutes: '0'
+
+    #endregion --- [ Settings: Scanning ] ---------------------------------------------------- #
+
+    #region ------ [ Settings: Performance ] ------------------------------------------------- #
+    checks_read_timeout: '5'
+    global.port_timeout.max_sec: '300'
+    global.port_timeout.tcp: ''
+    engine.max: ~  # computed from the CPU count (8 per core)
+    engine.max_hosts: '16'
+    engine.max_checks: '64'
+    engine.min: ~  # computed from the CPU count (2 per core)
+    engine.optimal_hosts: '2'
+    global.max_hosts: ~  # computed from the hardware at first start
+    global.max_scans: '0'
+    global.max_simult_tcp_sessions: ~  # computed from the platform (desktop or server)
+    host.max_simult_tcp_sessions: '0'
+    max_checks: '5'
+    max_hosts: '256'
+    max_simult_tcp_sessions: ''
+    # Performance: Tenable's setting for a dedicated server; this host runs nothing else.
+    qdb_mem_usage: 'high'
+    plugins_timeout: '320'
+    reduce_connections_on_congestion: 'no'
+    stop_scan_on_disconnect: 'no'
+    stop_scan_on_hang: 'false'  # deprecated by Tenable
+    max_http_connections: '600'
+    max_http_connections_hard: '3000'
+    xml_enable_plugin_attributes: 'false'
+    remediations_limit: '500'
+    global.log.engine_details: 'false'
+    global.max_portscanners: ~  # computed from global.max_hosts and engine.max
+    process_priority: 'normal'
+    process_priority_custom: '0'
+    db_synchronous_setting: 'NORMAL'
+    backend_socket_read_timeout: '60'
+    scratchpad_max_size_mb: '0'
+
+    #endregion --- [ Settings: Performance ] ------------------------------------------------- #
+
+    #region ------ [ Settings: Logging ] ----------------------------------------------------- #
+    backend_log_level: 'normal'
+    dumpfile: '/opt/nessus/var/nessus/logs/nessusd.dump'
+    dumpfile_rot: 'size'
+    dumpfile_max_size: '512'
+    dumpfile_rotation_time: '1'
+    dumpfile_max_files: '100'
+    # Hardened: scan logs name the user and scan behind each event (AU-3).
+    log_details: 'yes'
+    log_whole_attack: 'no'
+    logfile: '/opt/nessus/var/nessus/logs/nessusd.messages'
+    logfile_rot: 'size'
+    logfile_max_files: '100'
+    logfile_max_size: '512'
+    logfile_rotation_time: '1'
+    www_logfile: '/opt/nessus/var/nessus/logs/www_server.log'  # deprecated by Tenable
+    logfile_msec: 'false'
+    nasl_log_type: 'normal'
+    scanner.metrics: '0'
+    write_coverage_data: 'false'
+    plugin_fork_warn_threshold: '1000'
+    plugin_fork_trace: '0'
+
+    #endregion --- [ Settings: Logging ] ----------------------------------------------------- #
+
+    #region ------ [ Settings: Miscellaneous ] ----------------------------------------------- #
     # Plugins update themselves daily...
     auto_update: 'yes'
-    # ...but the software does not. The installed version stays the pinned, digest-verified RPM
-    # this role installed, and fapolicyd, which trusts files by their RPM digest, keeps trusting it.
+    auto_update_delay: '24'
+    # ...but the software does not: neither of the two switches that let Nessus replace its own
+    # binaries is on. The installed version stays the pinned, digest-verified RPM this role
+    # installed, and fapolicyd, which trusts files by their RPM digest, keeps trusting it.
+    auto_update_ui: 'no'
+    auto_update_was_plugins: 'true'
+    auto_update_plugin_locales: 'true'
+    config_file: '/opt/nessus/etc/nessus/nessusd.db'
+    dbg_port: ''
+    listen_port: '1241'  # deprecated by Tenable
+    remote_listen_port: ''
+    child_node_listen_port: ''
+    report_cleanup_threshold_days: '30'
+    # Hardened: nothing leaves the scanner but its own feed traffic (CM-7)...
+    report_crashes: 'no'
+    scan_history_expiration_days: '0'
+    orphaned_scan_cleanup_days: '30'
+    old_user_files_cleanup_hours: '0'
+    triggered_scan_history_cleanup_days: '7'
+    retain_policy_ingested_files: 'false'
+    packet_capture_archive_cleanup_days: '30'
+    source_ip: ''
+    ms_agent_sleep: '30'
+    max_http_client_requests: '4'
+    path_to_java: ''
+    java_heap_size: 'auto'
+    global.path_to_docker: ''
+    global.was_image_name: 'tenable/was-scanner'
+    global.was_image_tag: 'latest'
+    global.was_container_port: '18080'
+    sys_pread_timeout_msec: '5000'
+    docker_pull_timeout_msec: '300000'
+    windows_minidump: 'false'
+    # ...so neither crash reports nor usage telemetry go to Tenable...
+    send_telemetry: 'no'
+    telemetry_period: '1440'
+    # ...and the in-app guides, which need telemetry anyway, are off.
+    disable_guides: 'yes'
+    scan_stats_cleanup_days: '30'
+    scan_stats_cleanup_rows: '1000000'
+    show_initial_scan_wizard: 'true'
+    scanner_update_channel: 'ga'
+    agent_update_channel: 'ga'
     disable_core_updates: 'yes'
+    disable_gzip: 'false'
+    compliance_generate_description: 'false'
+    plugin_healthcheck_frequency: '10080'
+    allow_special_chars_in_username: 'false'
+    event_days_to_keep: '30'
+    backup_days_to_keep: '30'
+    # Hardened: the activation code is a secret; the interface does not show it.
+    hide_activation_code: 'yes'
+    plugin_detail_locale: 'en'
+    plugin_detail_locale_enabled: 'false'
+    plugin_detail_locale_current: ~  # state: a JSON record Nessus rewrites as locales download
+    offline_mode: 'false'
+    perform_global_db_init_integrity_check: 'true'
+    preferred_report_format: 'pdf'
+
+    #endregion --- [ Settings: Miscellaneous ] ----------------------------------------------- #
+
+    #region ------ [ Settings: Custom ] ------------------------------------------------------ #
+    acas_classification: ''
+
+    #endregion --- [ Settings: Custom ] ------------------------------------------------------ #
+
+    #region ------ [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
+    bw_permanent_blackout_window: 'no'
+    bw_prevent_agent_scans: 'yes'
+    bw_prevent_core_updates: 'yes'
+    bw_prevent_plugin_updates: 'yes'
+    track_unique_agents: 'yes'
+
+    #endregion --- [ Settings: Stored At Install, Absent From The Catalogue ] ---------------- #
 
   #endregion --- [ Listener and settings ] --------------------------------------------------- #
-
-  #region ------ [ Firewall ] ---------------------------------------------------------------- #
-  # Open the listener in every active firewalld zone. STIG requires firewalld, so a host where it
-  # is not running is reported rather than failed: there is no local filter to open.
-  firewall:
-    manage: true
-
-  #endregion --- [ Firewall ] ---------------------------------------------------------------- #
 
   #region ------ [ Bounds ] ------------------------------------------------------------------ #
   # Bounds, not behaviour: how long each wait may run, never what it waits for.
@@ -107,7 +328,7 @@ nessus_scanner_defaults:
     settings_pause_seconds: 5
     # Registration downloads the full plugin set before it returns.
     registration_seconds: 3600
-    # Compiling that plugin set is the long pole of a first converge: 180 x 20 s is an hour.
+    # Compiling that plugin set is the long pole of a first converge; these allow an hour.
     ready_attempts: 180
     ready_pause_seconds: 20
 
@@ -127,8 +348,8 @@ nessus_scanner_defaults:
   # Where 'nessuscli import-certs' places what the listener serves.
   served_certificate_path: '/opt/nessus/com/nessus/CA/servercert.pem'
   served_ca_path: '/opt/nessus/com/nessus/CA/cacert.pem'
-  # The system OpenSSL, deliberately not the copy Nessus bundles: it is the FIPS-validated module,
-  # so a bundle it decodes is one this host's crypto policy accepts.
+  # The system OpenSSL, deliberately not the copy Nessus bundles: it is the FIPS-validated
+  # module, so a bundle it decodes is one this host's crypto policy accepts.
   openssl_path: '/usr/bin/openssl'
 
   #endregion --- [ Product identity ] -------------------------------------------------------- #

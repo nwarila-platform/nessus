@@ -3,11 +3,12 @@
 # --- [ Description ] ----------------------------------------------------------------------- #
 #
 # Validates load-bearing Nessus configuration after the v3 loader merge, on the CONTROLLER,
-# before anything touches the guest. The artifact and secret inputs are supplied by the playbook
-# rather than defaulted, so this is where a missing or malformed one is caught -- in a second,
-# rather than mid-converge at the cost of an instance.
+# before the role changes anything on the guest. The playbook supplies every artifact and secret
+# input that has no default, so this is where a missing or malformed one is caught -- in a
+# second, rather than mid-converge at the cost of an instance.
 #
-# No assertion here prints a value: a failure names the input, never what it held.
+# No assertion here prints a secret: a failure names the input, and the password check names the
+# minimum the declared settings set.
 #
 # meta/main.yml describes these inputs; this file is what enforces them.
 #
@@ -49,11 +50,13 @@
       - nessus_scanner_running.certificate.password | default('') | string | trim is not search('[\r\n]')
       - nessus_scanner_running.administrator.username | default('') is match('^[a-z][a-z0-9_.-]{2,31}$')
     fail_msg: >-
-      Refusing to deploy: a required input is missing or malformed. The playbook must supply the
-      installer (bucket, a key carrying the <version> token, a lowercase 64-char sha256); the
-      certificate bundle (bucket, a .p12 key, its lowercase 64-char sha256 and its password); an
-      activation code of 16-64 letters, digits and dashes; and an administrator password of at
-      least 12 characters on one line. See meta/main.yml.
+      Refusing to deploy: a required input is missing or malformed. Required: the installer
+      (bucket, a key carrying the <version> token, a lowercase 64-char sha256); the certificate
+      bundle (bucket, a .p12 key not starting with '/', its lowercase 64-char sha256 and a
+      password of at least 8 characters on one line); an activation code of 16-64 letters, digits
+      and dashes; an administrator username of 3-32 lower-case letters, digits, '.', '_' or '-',
+      starting with a letter; and an administrator password of at least 12 characters on one
+      line. See meta/main.yml.
     quiet: true
 
 - name: 'VALIDATE | Require Settings The Command Line Can Carry'
@@ -65,10 +68,43 @@
         | reject('match', '^[a-z][a-z0-9_.]*$') | list | length == 0
       - nessus_scanner_running.settings | dict2items | map(attribute='value') | map('string')
         | select('search', '[\r\n]') | list | length == 0
+      # An unquoted yes, no, true or false is a YAML boolean, which would reach Nessus as 'True'
+      # or 'False' rather than the word written.
+      - nessus_scanner_running.settings | dict2items | map(attribute='value')
+        | select('boolean') | list | length == 0
       # The listener port has one source of truth, listener.port, so naming it twice is refused
       # rather than letting whichever merged last decide.
       - "'xmlrpc_listen_port' not in nessus_scanner_running.settings"
     fail_msg: >-
-      Refusing to deploy: settings must be a map of lower-case setting names to single-line
-      values, and must not name xmlrpc_listen_port -- set listener.port instead.
+      Refusing to deploy: settings must be a map of lower-case setting names to single-line,
+      quoted values, or ~ to leave a setting to Nessus. It must not name xmlrpc_listen_port --
+      set listener.port instead.
+    quiet: true
+
+# The one account's password is held to the policy the declared settings give Nessus, in the
+# STIG's stronger form. Its length is checked here because a password already in place is never
+# offered to Nessus again: on an in-use or adopted account that still signs in, neither account
+# creation nor the reset runs, so a policy raised over it would otherwise converge green.
+# Nessus's complexity rule accepts any 3 of the 4 character classes (measured 2026-10-01); the
+# ASD STIG requires all 4.
+- name: 'VALIDATE | Require An Administrator Password The Declared Policy Accepts'
+  when: (state | default('present') | string | lower | trim) == 'present'
+  vars:
+    __password__: "{{ nessus_scanner_running.administrator.password | string | trim }}"
+    __minimum__: >-
+      {{ [nessus_scanner_running.settings.min_password_len | default(0, true) | int,
+          nessus_scanner_running.settings.xmlrpc_min_password_len | default(0, true) | int] | max }}
+    __complex__: >-
+      {{ (nessus_scanner_running.settings.passwd_complexity | default('no', true) | string | lower)
+         in ['yes', 'true'] }}
+  ansible.builtin.assert:
+    that:
+      - (__password__ | length) >= __minimum__
+      - not (__complex__ | bool)
+        or (__password__ is search('[A-Z]') and __password__ is search('[a-z]')
+            and __password__ is search('[0-9]') and __password__ is search('[^A-Za-z0-9]'))
+    fail_msg: >-
+      Refusing to deploy: the administrator password must be at least {{ __minimum__ }}
+      characters{{ ', with an upper-case letter, a lower-case letter, a digit and a special'
+      ~ ' character' if __complex__ | bool else '' }}, the policy the declared settings give Nessus.
     quiet: true

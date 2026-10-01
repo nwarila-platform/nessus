@@ -1,8 +1,8 @@
 # =========================================================================================== #
 # File: '{{ role_path }}/meta/main.yml'
 # --- [ Description ] ----------------------------------------------------------------------- #
-# Role metadata for nessus_scanner. Description-only: NOT an enforcing argument spec. The role's
-# tasks/validate.yml enforces its merged-config guards.
+# Role metadata for nessus_scanner. Description-only (style guide 8): NOT an enforcing argument
+# spec. The role's tasks/validate.yml enforces its merged-config guards.
 #
 # REQUIRED INPUTS -- declared empty in defaults and supplied by the playbook.
 #
@@ -14,7 +14,7 @@
 #   nessus_scanner.installer.version        Three-part product version the RPM delivers; compared
 #                                           with the installed package to stay idempotent.
 #   nessus_scanner.installer.sha256         Lowercase 64-character digest of that object, verified
-#                                           on the GUEST immediately before dnf installs it.
+#                                           on the CONTROLLER before the guest is given a copy.
 #   nessus_scanner.activation_code          The Tenable activation code that registers the scanner.
 #   nessus_scanner.administrator.password   Password of the one Nessus account.
 #   nessus_scanner.certificate.bucket       S3 bucket holding the PKCS#12 HTTPS bundle.
@@ -33,12 +33,13 @@ galaxy_info:
   author: 'nwarila-platform'
   description: >-
     Tenable Nessus scanner for STIG-hardened RHEL 8. Installs the pinned, digest- and
-    signature-verified RPM, asserts its settings, admits the listener in firewalld, imports a
-    declared PKCS#12 certificate for HTTPS, registers the scanner and fetches its plugins, and
-    converges its one administrator account -- then proves the result over HTTPS validated against
-    the declared CA and hostname.
+    signature-verified RPM, converges every setting, imports a declared PKCS#12 certificate for
+    HTTPS, registers the scanner and fetches its plugins, and converges its one administrator
+    account -- then proves the result over HTTPS validated against the declared CA and hostname.
   license: 'MIT'
-  min_ansible_version: '2.17'
+  # 2.21 is the fleet's ansible-core baseline, not this role's own need: the stat reads want
+  # get_selinux_context, which core added in 2.20. The floor is the higher of the two.
+  min_ansible_version: '2.21'
   platforms:
     - name: 'EL'
       versions:

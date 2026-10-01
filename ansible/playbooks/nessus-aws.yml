@@ -54,8 +54,6 @@
   hosts: 'nessus_servers'
   any_errors_fatal: true
   vars:
-    launch_key_file: "{{ lookup('ansible.builtin.env', 'CI_PRIVATE_KEY') \
-      | default('~/.ssh/nwarila-ec2-key', true) | expanduser }}"
     # The CIS RHEL 8 STIG image answers only as its image account, authenticated by the account
     # key pair it installed from instance metadata at first boot. Nothing here joins a directory,
     # so there is no later identity to hand over to.
@@ -63,11 +61,12 @@
       - name: 'image-administrator'
         connection: 'ssh'
         user: 'ec2-user'
-        private_key_file: "{{ launch_key_file }}"
+        private_key_file: "{{ lookup('ansible.builtin.env', 'CI_PRIVATE_KEY') \
+          | default('~/.ssh/nwarila-ec2-key', true) | expanduser }}"
 
   #region ------ [ Roles ] -------------------------------------------------------------------- #
   roles:
-    # The image account must reach uid 0 through non-interactive sudo; every later play escalates.
+    # The image account must reach uid 0 by non-interactive sudo: every later play escalates.
     - role: 'credential_resolver'
       tags: ['always']
       vars:
@@ -127,6 +126,8 @@
     nessus_objects_bucket: "{{ aws_account_id }}-ansible"
     nessus_objects_prefix: 'applications/nessus'
     nessus_secret_prefix: "s3://{{ nessus_objects_bucket }}/{{ nessus_objects_prefix }}"
+    # The scanner's web listener: one value, so the host firewall below and the role agree on it.
+    nessus_listener_port: 8834
 
   #region ------ [ Roles ] -------------------------------------------------------------------- #
   roles:
@@ -134,24 +135,26 @@
       vars:
         nessus_scanner:
 
-          # What is installed, stated where a reader can see it. The digest is Tenable's published
-          # SHA-256 for this build, verified on the GUEST immediately before dnf installs it; the
-          # application repository carries the object at the layout the role composes from the
-          # version. A version bump is these two values and dependencies/aws/artifacts.yml.
+          listener:
+            port: "{{ nessus_listener_port }}"
+
+          # The digest is Tenable's published SHA-256 for this build; the application repository
+          # carries the object at the layout the role composes from the version. A version bump
+          # is these two values and dependencies/aws/artifacts.yml.
           installer:
             bucket: "{{ aws_account_id }}-apprepo"
             version: '10.12.4'
             sha256: 'df378dd85dea63c0bd1e07d35262e967dca1a0286d84e783edcf956fa85a5444'
 
-          # Registration entitles the scanner to plugins. Read on the controller; never logged.
+          # Read on the controller; never logged.
           activation_code: "{{ lookup('secret', nessus_secret_prefix ~ '/activation-code.txt') }}"
 
           administrator:
             password: "{{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') }}"
 
           # The HTTPS bundle minted by scripts/mint-nessus-https.sh: a private root CA and the
-          # server certificate it signed, names tcnaw-nessus01, localhost and 127.0.0.1. A re-mint
-          # changes this digest in the same commit that uploads the new bundle.
+          # server certificate it signed, names tcnaw-nessus01, localhost and 127.0.0.1. A
+          # re-mint changes this digest in the same commit that uploads the new bundle.
           certificate:
             bucket: "{{ nessus_objects_bucket }}"
             key: "{{ nessus_objects_prefix }}/nessus-https.p12"
@@ -159,6 +162,119 @@
             password: "{{ lookup('secret', nessus_secret_prefix ~ '/nessus-https-p12-password.txt') }}"
 
   #endregion --- [ Roles ] -------------------------------------------------------------------- #
+
+  #region ------ [ Tasks ] -------------------------------------------------------------------- #
+  tasks:
+    # The host firewall is nftables itself, not firewalld (decision 2026-10-01, TD-009):
+    # firewalld is masked, and this ruleset is the host's whole filter. The role knows nothing of
+    # firewalls, so it works the same behind any, and these run after it: under state=absent the
+    # listener is closed once the scanner is gone.
+    - name: 'PROCESS | Install nftables'
+      ansible.builtin.dnf:
+        allow_downgrade: false
+        allowerasing: false
+        autoremove: false
+        bugfix: false
+        cacheonly: false
+        disable_gpg_check: false
+        disable_plugin: []
+        disablerepo: []
+        download_only: false
+        enable_plugin: []
+        enablerepo: []
+        exclude: []
+        install_weak_deps: true
+        installroot: '/'
+        lock_timeout: 30
+        name: 'nftables'
+        security: false
+        skip_broken: false
+        sslverify: true
+        state: 'present'
+        update_cache: false
+        update_only: false
+        use_backend: 'auto'
+        validate_certs: true
+
+    - name: 'PROCESS | Write The Host nftables Ruleset'
+      register: '__nessus_nftables_ruleset__'
+      ansible.builtin.copy:
+        backup: false
+        content: |
+          #!/usr/sbin/nft -f
+          # Managed by ansible/playbooks/nessus-aws.yml; a local edit is overwritten.
+          flush ruleset
+
+          table inet filter {
+              chain input {
+                  type filter hook input priority 0; policy drop;
+                  ct state established,related accept
+                  ct state invalid drop
+                  iif "lo" accept
+                  ip saddr 127.0.0.0/8 drop
+                  ip6 saddr ::1 drop
+                  meta l4proto { icmp, ipv6-icmp } accept
+                  tcp dport {{ ansible_port }} ct state new limit rate 25/second burst 50 packets accept
+          {% if (state | default('present') | string | lower | trim) != 'absent' %}
+                  tcp dport {{ nessus_listener_port }} ct state new limit rate 25/second burst 50 packets accept
+          {% endif %}
+              }
+              chain forward {
+                  type filter hook forward priority 0; policy drop;
+              }
+              chain output {
+                  type filter hook output priority 0; policy accept;
+              }
+          }
+        decrypt: true
+        dest: '/etc/sysconfig/nftables.conf'
+        follow: false
+        force: true
+        group: 'root'
+        local_follow: true
+        mode: '0600'
+        owner: 'root'
+        remote_src: false
+        unsafe_writes: false
+        validate: '/usr/sbin/nft -c -f %s'
+
+    # Stopping firewalld removes its own rules, so until nftables loads a moment later the host
+    # filters nothing -- which cannot drop the session running this. Masked, so nothing starts it
+    # again behind this ruleset.
+    - name: 'PROCESS | Stop And Mask firewalld'
+      ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
+        masked: true
+        name: 'firewalld'
+        no_block: false
+        scope: 'system'
+        state: 'stopped'
+
+    - name: 'PROCESS | Enable And Start nftables'
+      register: '__nessus_nftables_service__'
+      ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
+        enabled: true
+        name: 'nftables'
+        no_block: false
+        scope: 'system'
+        state: 'started'
+
+    - name: 'PROCESS | Load A Changed Ruleset'
+      when:
+        - __nessus_nftables_ruleset__ is changed
+        - __nessus_nftables_service__ is not changed
+      ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
+        name: 'nftables'
+        no_block: false
+        scope: 'system'
+        state: 'reloaded'
+
+  #endregion --- [ Tasks ] -------------------------------------------------------------------- #
 
 #endregion --- [ Play: Nessus Scanner ] ------------------------------------------------------- #
 
@@ -177,14 +293,13 @@
   become: true
   tags: ['never', 'nessus_data_proof']
   vars:
-    nessus_secret_prefix: "s3://{{ aws_account_id }}-ansible/applications/nessus"
     __proof_url__: 'https://localhost:8834'
-    # The CA the listener serves -- the role proved it equals the declared CA on its last converge.
+    # The listener's CA, which the role converges to the declared CA.
     __proof_ca__: '/opt/nessus/com/nessus/CA/cacert.pem'
-    __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker | default('') }}"
+    __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker }}"
 
   tasks:
-    - name: 'VERIFY | Require A Proof Action And Marker'
+    - name: 'PROCESS | Require A Proof Action And Marker'
       ansible.builtin.assert:
         that:
           - nessus_data_proof | default('') in ['mark', 'verify']
@@ -194,78 +309,148 @@
           dashes) as extra-vars.
         quiet: true
 
-    - name: 'BEGIN | Sign In As The Administrator'
-      no_log: true
-      register: '__proof_session__'
+    # Signed out in 'always', so a failed write or read still ends the session it opened; a
+    # refused sign-in opened none.
+    - name: 'PROCESS | Mark Or Verify The Proof Record'
+      block:
+        - name: 'PROCESS | Sign In As The Administrator'
+          changed_when: false
+          failed_when: false
+          no_log: true
+          register: '__proof_session__'
+          ansible.builtin.uri:
+            body:
+              username: 'nessusadmin'
+              password: >-
+                {{ lookup('secret', 's3://' ~ aws_account_id
+                   ~ '-ansible/applications/nessus/administrator-password.txt') | trim }}
+            body_format: 'json'
+            ca_path: "{{ __proof_ca__ }}"
+            decompress: true
+            follow_redirects: 'safe'
+            force: false
+            force_basic_auth: false
+            headers: {}
+            http_agent: 'ansible-httpget'
+            method: 'POST'
+            remote_src: false
+            return_content: false
+            status_code: [ 200 ]
+            timeout: 30
+            unredirected_headers: []
+            unsafe_writes: false
+            url: "{{ __proof_url__ }}/session"
+            use_gssapi: false
+            use_netrc: false
+            use_proxy: true
+            validate_certs: true
 
-      ansible.builtin.uri:
-        body:
-          username: 'nessusadmin'
-          password: >-
-            {{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') | trim }}
-        body_format: 'json'
-        ca_path: "{{ __proof_ca__ }}"
-        method: 'POST'
-        return_content: true
-        status_code: [ 200 ]
-        timeout: 30
-        url: "{{ __proof_url__ }}/session"
-        validate_certs: true
+        # The sign-in carries no_log, which hides its response and the product's own error, so it
+        # never fails; this names any answer that is not a session.
+        - name: 'PROCESS | Require The Administrator To Sign In'
+          ansible.builtin.assert:
+            that: __proof_session__.status | default(-1) == 200
+            fail_msg: >-
+              The administrator could not sign in to prove the data volume: HTTP
+              {{ __proof_session__.status | default(-1) }}
+              {{ __proof_session__.json.error | default('') }}
+              {{ __proof_session__.msg
+                 | default('uri returned no status: the request did not complete') }}.
+            quiet: true
 
-    - name: 'PROCESS | Write The Proof Record Before The OS Is Replaced'
-      when: nessus_data_proof == 'mark'
-      no_log: true
+        - name: 'PROCESS | Write The Proof Record Before The OS Is Replaced'
+          changed_when: true
+          no_log: true
+          when: nessus_data_proof == 'mark'
+          ansible.builtin.uri:
+            body:
+              name: "{{ __proof_folder__ }}"
+            body_format: 'json'
+            ca_path: "{{ __proof_ca__ }}"
+            decompress: true
+            follow_redirects: 'safe'
+            force: false
+            force_basic_auth: false
+            headers:
+              X-Cookie: "token={{ __proof_session__.json.token }}"
+            http_agent: 'ansible-httpget'
+            method: 'POST'
+            remote_src: false
+            return_content: false
+            status_code: [ 200 ]
+            timeout: 30
+            unredirected_headers: []
+            unsafe_writes: false
+            url: "{{ __proof_url__ }}/folders"
+            use_gssapi: false
+            use_netrc: false
+            use_proxy: true
+            validate_certs: true
 
-      ansible.builtin.uri:
-        body:
-          name: "{{ __proof_folder__ }}"
-        body_format: 'json'
-        ca_path: "{{ __proof_ca__ }}"
-        headers:
-          X-Cookie: "token={{ __proof_session__.json.token }}"
-        method: 'POST'
-        status_code: [ 200 ]
-        timeout: 30
-        url: "{{ __proof_url__ }}/folders"
-        validate_certs: true
+        - name: 'PROCESS | Read The Records Nessus Holds'
+          changed_when: false
+          no_log: true
+          register: '__proof_folders__'
+          ansible.builtin.uri:
+            body_format: 'raw'
+            ca_path: "{{ __proof_ca__ }}"
+            decompress: true
+            follow_redirects: 'safe'
+            force: false
+            force_basic_auth: false
+            headers:
+              X-Cookie: "token={{ __proof_session__.json.token }}"
+            http_agent: 'ansible-httpget'
+            method: 'GET'
+            remote_src: false
+            return_content: false
+            status_code: [ 200 ]
+            timeout: 30
+            unredirected_headers: []
+            unsafe_writes: false
+            url: "{{ __proof_url__ }}/folders"
+            use_gssapi: false
+            use_netrc: false
+            use_proxy: true
+            validate_certs: true
 
-    - name: 'BEGIN | Read The Records Nessus Holds'
-      no_log: true
-      register: '__proof_folders__'
+        - name: 'PROCESS | Require The Proof Record In The Scanner Database'
+          ansible.builtin.assert:
+            that: >-
+              __proof_folder__ in (__proof_folders__.json.folders | map(attribute='name') | list)
+            fail_msg: >-
+              Nessus's database does not hold '{{ __proof_folder__ }}'
+              ({{ nessus_data_proof }}): it holds
+              {{ __proof_folders__.json.folders | map(attribute='name') | list }}.
+            quiet: true
 
-      ansible.builtin.uri:
-        ca_path: "{{ __proof_ca__ }}"
-        headers:
-          X-Cookie: "token={{ __proof_session__.json.token }}"
-        method: 'GET'
-        return_content: true
-        status_code: [ 200 ]
-        timeout: 30
-        url: "{{ __proof_url__ }}/folders"
-        validate_certs: true
-
-    - name: 'VERIFY | Require The Proof Record In The Scanner Database'
-      ansible.builtin.assert:
-        that: __proof_folder__ in (__proof_folders__.json.folders | map(attribute='name') | list)
-        fail_msg: >-
-          Nessus's database does not hold '{{ __proof_folder__ }}'
-          ({{ nessus_data_proof }}): it holds
-          {{ __proof_folders__.json.folders | map(attribute='name') | list }}.
-        quiet: true
-
-    - name: 'CLEANUP | Sign Out'
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-      ansible.builtin.uri:
-        ca_path: "{{ __proof_ca__ }}"
-        headers:
-          X-Cookie: "token={{ __proof_session__.json.token }}"
-        method: 'DELETE'
-        status_code: [ 200 ]
-        timeout: 30
-        url: "{{ __proof_url__ }}/session"
-        validate_certs: true
+      always:
+        - name: 'PROCESS | Sign Out'
+          changed_when: false
+          failed_when: false
+          no_log: true
+          when: __proof_session__.json.token is defined
+          ansible.builtin.uri:
+            body_format: 'raw'
+            ca_path: "{{ __proof_ca__ }}"
+            decompress: true
+            follow_redirects: 'safe'
+            force: false
+            force_basic_auth: false
+            headers:
+              X-Cookie: "token={{ __proof_session__.json.token }}"
+            http_agent: 'ansible-httpget'
+            method: 'DELETE'
+            remote_src: false
+            return_content: false
+            status_code: [ 200 ]
+            timeout: 30
+            unredirected_headers: []
+            unsafe_writes: false
+            url: "{{ __proof_url__ }}/session"
+            use_gssapi: false
+            use_netrc: false
+            use_proxy: true
+            validate_certs: true
 
 #endregion --- [ Play: Data Volume Proof (opt-in) ] ------------------------------------------- #

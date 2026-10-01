@@ -32,11 +32,17 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   this repository mints. The role decodes it with the host's FIPS-validated OpenSSL, checks it as a
   set, and imports it. The readiness wait then trusts *only* the declared CA and connects by the
   name the certificate carries, and the served leaf's fingerprint must equal the declared one.
+- **Every setting under configuration management.** All 160 settings Nessus 10.12.4 has are
+  declared in the repository, hardened to common STIG controls (TLS 1.3 only, FIPS enforcing,
+  lockout, 15-character complex passwords, idle timeout) and otherwise at the product's value.
+  Every converge converges all of them and refuses a misspelled name, so any setting changes
+  through a pull request. See the role README's
+  [Settings](ansible/applications/nessus_scanner/README.md#settings).
 - **Data that outlives the OS.** The scanner's whole install root — plugins, settings,
   certificates, accounts, scan data — is a standalone data volume. The OS disk is replaceable, and
   the pipeline proves the scanner resumes on its own database afterwards.
 - **Written for a hardened host.** FIPS mode, fapolicyd, `noexec` temporary directories, enforced
-  local-package signature checks and firewalld are all live on the target, and every step is
+  local-package signature checks and a default-drop nftables firewall are all live on the target, and every step is
   shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
 - **No stored cloud keys.** GitHub OIDC only, gated to protected `main`, with a separate tag-scoped
   cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest never
