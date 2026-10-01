@@ -37,7 +37,7 @@ galaxy_info:
     HTTPS, registers the scanner and fetches its plugins, and converges its one administrator
     account -- then proves the result over HTTPS validated against the declared CA and hostname.
   license: 'MIT'
-  min_ansible_version: '2.17'
+  min_ansible_version: '2.20'
   platforms:
     - name: 'EL'
       versions:
