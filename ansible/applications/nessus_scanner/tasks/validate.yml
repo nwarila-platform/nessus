@@ -98,7 +98,7 @@
          in ['yes', 'true'] }}
   ansible.builtin.assert:
     that:
-      - (__password__ | length) >= (__minimum__ | int)
+      - (__password__ | length) >= __minimum__
       - not (__complex__ | bool)
         or (__password__ is search('[A-Z]') and __password__ is search('[a-z]')
             and __password__ is search('[0-9]') and __password__ is search('[^A-Za-z0-9]'))

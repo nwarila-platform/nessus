@@ -549,9 +549,9 @@
 
     #region ------ [ Process: Start The Service ] --------------------------------------------- #
     # Started before anything is configured, because the settings store does not exist until the
-    # service has run once. 'nessuscli fix' answers "global.db is not yet initialized" for tens
-    # of seconds after a first start (measured 2026-09-30), so a value read back is the only
-    # proof the store is up.
+    # service has run once. 'nessuscli fix' exits 1 with "The global.db is not yet intitialized"
+    # (sic) for tens of seconds after a first start (measured 2026-09-30; the exit status
+    # 2026-10-01), so the wait ends at the first answer that exits 0.
 
     - name: 'PROCESS | Enable And Start The Scanner Service'
       when: not (ansible_check_mode and __install_required__ | bool)
@@ -573,9 +573,7 @@
       delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
       register: '__nessus_scanner_store_ready__'
       retries: "{{ nessus_scanner_running.timeouts.settings_attempts | int }}"
-      until:
-        - __nessus_scanner_store_ready__.rc == 0
-        - __nessus_scanner_store_ready__.stdout is search('The current value for')
+      until: __nessus_scanner_store_ready__.rc == 0
       when: not (ansible_check_mode and __install_required__ | bool)
 
       ansible.builtin.command:
@@ -651,7 +649,8 @@
           {{ __unknown__ | join(', ') }}. 'fix --set' would store it anyway and nothing would
           read it, so correct the name or remove it from the declaration.
         quiet: true
-        that: __unknown__ | length == 0
+        that:
+          - __unknown__ | length == 0
 
     # ----------------------------------------------------------------------------------------- #
     # A version bump can add settings; this names them so the declaration can catch up.
@@ -844,7 +843,8 @@
           FIPS host, an unsupported algorithm means a legacy PKCS#12 -- re-mint it with
           scripts/mint-nessus-https.sh.
         quiet: true
-        that: __nessus_scanner_decoded__.results | rejectattr('rc', 'eq', 0) | list | length == 0
+        that:
+          - __nessus_scanner_decoded__.results | rejectattr('rc', 'eq', 0) | list | length == 0
 
     # ----------------------------------------------------------------------------------------- #
     # Written without the attribute headers PKCS#12 export adds, which some consumers refuse.
@@ -968,8 +968,7 @@
       notify: 'nessus-restart-required'
       when:
         - not ansible_check_mode
-        - >-
-          __certificate__['served-fingerprint'].stdout
+        - __certificate__['served-fingerprint'].stdout
           != __certificate__['declared-fingerprint'].stdout
           or __certificate__['served-ca-fingerprint'].stdout
           != __certificate__['declared-ca-fingerprint'].stdout
@@ -1015,8 +1014,8 @@
     # the API. The web tier reads whether setup is complete when the service starts, so the start
     # that follows registration must find the account already there (measured 2026-09-30: an
     # account added after that start left /server/status at 'register' until the next restart).
-    # The command line reads each answer as a line on stdin, and every write is judged by its
-    # words as well as its status: the words are its only statement of which refusal it made.
+    # The command line reads each answer as a line on stdin. A write that exits non-zero was
+    # refused, and its last line names the refusal (measured 2026-10-01).
 
     - name: 'PROCESS | Read The Accounts Nessus Holds'
       changed_when: false
@@ -1042,8 +1041,7 @@
       register: '__nessus_scanner_created__'
       when:
         - not ansible_check_mode
-        - >-
-          nessus_scanner_running.administrator.username
+        - nessus_scanner_running.administrator.username
           not in __nessus_scanner_accounts__.stdout_lines
 
       ansible.builtin.command:
@@ -1077,7 +1075,6 @@
         quiet: true
         that:
           - __nessus_scanner_created__.rc == 0
-          - __nessus_scanner_created__.stdout is search('User added')
 
     #endregion --- [ Process: Converge The One Administrator Account ] ------------------------ #
 
@@ -1146,11 +1143,12 @@
       ansible.builtin.assert:
         fail_msg: >-
           {{ nessus_scanner_running.install_root }} has
-          {{ ((__free_kib__ | int) / 1048576) | round(1) }} GiB free; registration needs at least
+          {{ (__free_kib__ / 1048576) | round(1) }} GiB free; registration needs at least
           {{ nessus_scanner_running.minimum_free_gib }} GiB for the plugin set. Grow the data
           volume (terraform/aws.tfvars ebs_block_devices).
         quiet: true
-        that: (__free_kib__ | int) >= (nessus_scanner_running.minimum_free_gib | int) * 1048576
+        that:
+          - __free_kib__ >= (nessus_scanner_running.minimum_free_gib | int) * 1048576
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1200,7 +1198,8 @@
               A 400 means Tenable refused the activation code: check that it is current and has
               not registered a scanner before (TD-007).
             quiet: true
-            that: __nessus_scanner_registered__.rc == 0
+            that:
+              - __nessus_scanner_registered__.rc == 0
 
       # Started whatever registration did, so a refused code still leaves the scanner running.
       always:
@@ -1437,7 +1436,6 @@
         quiet: true
         that:
           - __nessus_scanner_reset__.rc == 0
-          - __nessus_scanner_reset__.stdout is search('Password changed')
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1490,7 +1488,8 @@
           {{ __session__.msg
              | default('uri returned no status: the request did not complete') }}.
         quiet: true
-        that: __session__.status | default(-1) == 200
+        that:
+          - __session__.status | default(-1) == 200
 
     #endregion --- [ Process: Prove The Account Over Validated HTTPS ] ------------------------ #
 
@@ -1677,7 +1676,7 @@
         __session__: >-
           {{ __nessus_scanner_signin_again__
              if (__nessus_scanner_signin_again__ is not skipped) else __nessus_scanner_signin__ }}
-      when: __session__.json.token | default('') | length > 0
+      when: __session__.json.token is defined
 
       ansible.builtin.uri:
         body_format: 'raw'
