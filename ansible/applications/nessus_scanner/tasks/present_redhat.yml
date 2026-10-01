@@ -335,7 +335,6 @@
 
     - name: 'PROCESS | Fetch The Installer To The Controller'
       become: false
-      changed_when: false
       delegate_to: 'localhost'
       vars:
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
@@ -1161,7 +1160,7 @@
         # ------------------------------------------------------------------------------------- #
 
         - name: 'PROCESS | Register With The Activation Code And Fetch The Plugins'
-          changed_when: true
+          changed_when: __nessus_scanner_registered__.rc == 0
           failed_when: false
           no_log: true
           register: '__nessus_scanner_registered__'
@@ -1344,9 +1343,16 @@
     # hostname-validated HTTPS. A refused sign-in means the declared password moved -- or three
     # failures locked the account -- and the command line converges it: 'nessuscli chpasswd'
     # sets the password and clears a lock (measured 2026-10-01). END signs the session out.
+    #
+    # Both sign-ins carry no_log, since their request holds the password, so a failure of their
+    # own would be censored. They never fail; the require at the end of this region names any
+    # answer that is not a session by its status and the product's own error. A scanner whose API
+    # is unavailable closes the connection on the sign-in: curl reads 412 "API is not available",
+    # and uri reports -1 (measured 2026-10-01).
 
     - name: 'PROCESS | Sign In As The Administrator'
       changed_when: false
+      failed_when: false
       no_log: true
       register: '__nessus_scanner_signin__'
       when: not ansible_check_mode
@@ -1416,6 +1422,7 @@
 
     - name: 'PROCESS | Sign In Again After The Reset'
       changed_when: false
+      failed_when: false
       no_log: true
       register: '__nessus_scanner_signin_again__'
       when: __nessus_scanner_reset__ is not skipped
@@ -1459,8 +1466,10 @@
           - __session__.status | default(0) == 200
           - (__session__.json | default({})).token | default('') | length > 0
         fail_msg: >-
-          '{{ nessus_scanner_running.administrator.username }}' could not sign in to the API
-          (HTTP {{ __session__.status | default('?') }}) with the declared password.
+          '{{ nessus_scanner_running.administrator.username }}' could not sign in to the API with
+          the declared password: HTTP {{ __session__.status | default('?') }}
+          {{ (__session__.json | default({})).error | default('') }}
+          {{ __session__.msg | default('') }}.
         quiet: true
 
     #endregion --- [ Process: Prove The Account Over Validated HTTPS ] ------------------------ #

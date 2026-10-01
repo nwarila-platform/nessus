@@ -214,11 +214,13 @@ tool fails at `PROCESS | Decode The Bundle`, and the message names the cause.
   which include superseded private keys. The product, its data and its configuration are
   untouched.
 
-`present` and `absent` support `--check`. Reads run for real, setting drift is reported as
-changed, and END, which proves what PROCESS did, is skipped. The S3 fetches download nothing under
-`--check`, so certificate and administrator-password drift go unreported, and when the pinned
-version is not installed the steps that need it are skipped. TD-010 records what check mode does
-not cover, including that the fetch path itself is proven only in the lab, where it is replaced.
+`present` and `absent` support `--check`. Reads run for real and END, which proves what PROCESS
+did, is skipped. Reported as changed: setting drift, and an install that is due (as its fetch).
+Not reported, because each depends on a file only a real run fetches or on a change it would make
+first: the signing-key trust, a missing administrator account, a lost registration, certificate
+drift and administrator-password drift. Whenever the pinned version is not installed, the steps
+that need it are skipped. TD-010 records these limits; the S3 fetch path under `--check` is
+unproven, because the lab replaces the fetch.
 
 ## Design invariants
 

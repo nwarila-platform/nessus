@@ -130,18 +130,32 @@
 ## TD-010 — OPEN — check mode covers the role, not the playbook or the S3 fetch
 
 - **Recorded:** 2026-10-01.
-- **Issue:** the role supports `--check` on its present and absent paths. Reads run for real,
-  steps that need the product installed are skipped when a fresh host runs `--check`, and steps
-  that depend on an earlier change in the same run are skipped under `--check`. Setting drift is
-  reported as changed. Not covered:
-  - The playbook and the framework roles it composes are not this repository's to change.
+- **Issue:** the role supports `--check` on its present and absent paths. Reads run for real;
+  steps that need the product installed are skipped whenever the pinned version is not installed,
+  and steps that depend on an earlier change in the same run are skipped under `--check`. Setting
+  drift is reported as changed, and so is an install that is due, as its fetch. Not covered:
+  - The playbook's own tasks and the framework roles it composes are outside this change's
+    check-mode scope.
   - The two S3 fetches keep the Golden's form (no `check_mode: false`), so under `--check` nothing
     is downloaded, and the framework loader creates no temporary directory to stage into. Every
     step that reads a fetched or staged file is skipped, including the HTTPS steps that trust the
-    CA decoded from the bundle, so certificate and administrator-password drift are not reported.
-    The fetch path is unproven anywhere: the lab replaces the fetch, and the deploy never runs
-    `--check`.
+    CA decoded from the bundle. Not reported, therefore: the signing-key trust, a missing
+    administrator account, a lost registration, certificate drift and administrator-password
+    drift. That `s3_object` reports a skipped get as changed is read from amazon.aws 11.4.0's
+    source ("GET operation skipped - running in check mode"), never run: the lab replaces the
+    fetch, and the deploy never runs `--check`.
   - END proves what PROCESS did, so a check run skips it.
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
   path skipping cleanly, and the playbook's own check-mode behaviour is decided.
 
+
+## TD-011 — OPEN — the settled-registration read is redundant
+
+- **Recorded:** 2026-10-01.
+- **Issue:** `PROCESS | Read Whether The Settled Scanner Is Registered` (nessuscli fetch --check)
+  runs when the readiness wait settles on 'register', to decide the one restart that clears a stale
+  setup state. In a real run it can only answer 0: the scanner was already registered, or
+  `PROCESS | Require The Registration To Succeed` passed. It is kept because the stale-'register'
+  path exists only on a registered AWS scanner, and removing the read there could not be proven
+  before merge.
+- **Exit criteria:** an AWS deploy that reaches the stale-'register' restart without the read.
