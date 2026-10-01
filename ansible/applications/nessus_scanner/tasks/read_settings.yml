@@ -1,0 +1,68 @@
+# =========================================================================================== #
+# File: '{{ role_path }}/tasks/read_settings.yml'
+# --- [ Description ] ----------------------------------------------------------------------- #
+#
+# Reads every setting this Nessus has, with its effective value, and records which declared
+# settings differ from their declaration. Two reads answer it:
+#   fix --show   the product's own catalogue: every setting it knows and its effective value,
+#                defaults included.
+#   fix --list   its store: what has been written, including the few settings it stores at
+#                install without cataloguing. A stored value wins over a shown one.
+# Booleans compare by meaning, because the catalogue reports true/false where the store holds
+# yes/no for the same setting.
+#
+# Reading is not a change to the host, so nothing here reports 'changed'. Sets:
+#   __nessus_scanner_settings_known__   every setting name this Nessus catalogues
+#   __nessus_scanner_settings_differ__  the managed settings whose effective value differs
+#
+# =========================================================================================== #
+---
+- name: 'BEGIN | Read The Settings Catalogue'
+  changed_when: false
+  register: '__nessus_scanner_catalogue__'
+
+  ansible.builtin.command:
+    argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--show' ]
+
+- name: 'BEGIN | Read The Stored Settings'
+  changed_when: false
+  register: '__nessus_scanner_store__'
+
+  ansible.builtin.command:
+    argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--list' ]
+
+# Each side becomes 'name=value' strings, so the comparison is one set difference. Every managed
+# name is padded in with an empty value first, so a setting Nessus does not report reads as empty
+# rather than failing the lookup.
+- name: 'BEGIN | Record Which Managed Settings Differ'
+  vars:
+    # A setting the vendor has deprecated prints a '- Deprecated' line (or 'Deprecated by <name>')
+    # between its name and its value, and an empty display name; it is still a setting.
+    __marker__: '(?:    - Deprecated[^\n]*\n)?'
+    __shown_names__: >-
+      {{ __nessus_scanner_catalogue__.stdout
+         | regex_findall('(?m)^  [*] .*[(]([^()]+)[)]\n' ~ __marker__ ~ '    - Current value: ?.*$') }}
+    __shown_values__: >-
+      {{ __nessus_scanner_catalogue__.stdout
+         | regex_findall('(?m)^  [*] .*[(][^()]+[)]\n' ~ __marker__ ~ '    - Current value: ?(.*)$') }}
+    __stored_names__: "{{ __nessus_scanner_store__.stdout | regex_findall('(?m)^([a-z0-9_.]+): ?.*$') }}"
+    __stored_values__: "{{ __nessus_scanner_store__.stdout | regex_findall('(?m)^[a-z0-9_.]+: ?(.*)$') }}"
+    __names__: "{{ __nessus_scanner_managed__ | list }}"
+    __effective__: >-
+      {{ dict(__names__ | zip(__names__ | map('regex_replace', '^.*$', '')))
+         | combine(dict(__shown_names__ | zip(__shown_values__)),
+                   dict(__stored_names__ | zip(__stored_values__))) }}
+    __want__: >-
+      {{ __names__ | zip(__names__ | map('extract', __nessus_scanner_managed__) | map('string'))
+         | map('join', '=') | map('regex_replace', '(?i)=(true|yes)$', '=yes')
+         | map('regex_replace', '(?i)=(false|no)$', '=no') | list }}
+    __have__: >-
+      {{ __names__ | zip(__names__ | map('extract', __effective__) | map('string'))
+         | map('join', '=') | map('regex_replace', '(?i)=(true|yes)$', '=yes')
+         | map('regex_replace', '(?i)=(false|no)$', '=no') | list }}
+
+  ansible.builtin.set_fact:
+    __nessus_scanner_settings_known__: "{{ __shown_names__ }}"
+    __nessus_scanner_settings_differ__: >-
+      {{ __want__ | difference(__have__) | map('regex_replace', '=.*$', '') | list }}
+    cacheable: false

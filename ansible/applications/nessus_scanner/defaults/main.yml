@@ -78,16 +78,210 @@ nessus_scanner_defaults:
   listener:
     port: 8834
 
-  # Asserted with 'nessuscli fix' on every converge; a setting not named here is left alone.
+  # EVERY setting this Nessus has (10.12.4: the 157 in its own catalogue, 'nessuscli fix --show',
+  # and 5 it stores at install without cataloguing), each at the product's own value unless a
+  # comment says why not. The role converges all of them on every converge: it reads the
+  # catalogue and the store once, writes only what differs, and reads the result back. A name
+  # this Nessus does not have is refused, because 'fix --set' would store it silently.
+  #   * To change one, set it by name in the playbook's nessus_scanner.settings.
+  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state Nessus
+  #     rewrites itself, so pinning the lab's values would be wrong here.
+  #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
+  #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
   # xmlrpc_listen_port is derived from listener.port and must not be named here too.
   settings:
+    #region ------ [ Settings: User Interface ] --------------------------------------------- #
+    login_banner: ''
+    scan_vulnerability_groups: 'yes'
+    scan_vulnerability_groups_mixed: 'yes'
+    allow_post_scan_editing: 'yes'
+    disable_ntp: 'true'  # deprecated by Tenable
+    disable_xmlrpc: 'false'  # deprecated by Tenable for disable_api
+    disable_ui: 'false'  # deprecated by Tenable for disable_api
+    # xmlrpc_listen_port: derived from listener.port; naming it here is refused.
+    listen_address: '0.0.0.0'
+    plugin_upload: 'yes'  # deprecated by Tenable
+    global.max_web_users: '1024'
+    disable_api: 'no'
+    disable_frontend: 'false'
+    ui_theme: 'track_os_setting'
+    #endregion --- [ Settings: User Interface ] --------------------------------------------- #
+
+    #region ------ [ Settings: Password ] --------------------------------------------------- #
+    xmlrpc_idle_session_timeout: '30'
+    user_max_login_attempt: '0'
+    min_password_len: '0'
+    xmlrpc_min_password_len: '0'
+    passwd_complexity: 'false'
+    passwd_notifications: 'false'
+    #endregion --- [ Settings: Password ] --------------------------------------------------- #
+
+    #region ------ [ Settings: Security ] --------------------------------------------------- #
     # TLS 1.2 is the floor; TLS 1.3 is negotiated when the client offers it.
     ssl_mode: 'tls_1_2'
+    ssl_cipher_list: 'modern'
+    nasl_no_signature_check: 'no'
+    audit_file_signature_check: 'false'
+    cipher_files_on_disk: 'true'
+    max_sessions_per_user: '0'
+    force_pubkey_auth: 'false'
+    strict_certificate_validation: 'false'
+    niap_mode: 'non-enforcing'
+    fips_mode: 'non-enforcing'
+    #endregion --- [ Settings: Security ] --------------------------------------------------- #
+
+    #region ------ [ Settings: Scanning ] --------------------------------------------------- #
+    plugin_output_max_size_kb: '1000'
+    auto_enable_dependencies: 'yes'
+    engine.idle_wait: '60'
+    paused_scan_timeout: '0'
+    pcap.snaplen: '0'
+    cgi_path: '/cgi-bin:/scripts'
+    portscanner.max_ports: '1024'
+    report.max_ports: '1024'
+    reverse_lookup: 'false'
+    rules: '/opt/nessus/etc/nessus/nessusd.rules'
+    silent_dependencies: 'yes'
+    non_simult_ports: '139, 445, 3389'
+    port_range: 'default'
+    safe_checks: 'yes'
+    slice_network_addresses: 'no'
+    severity_basis: 'cvss_v3'
+    audit_trail: 'full'
+    disable_remote_tasks: 'false'
+    triggered_scan_collection_window_hours: '12'
+    triggered_scan_child_node_update_freq: '6'
+    triggered_scan_node_last_update_advance: '600'
+    scan.host_timeout_minutes: '0'
+    #endregion --- [ Settings: Scanning ] --------------------------------------------------- #
+
+    #region ------ [ Settings: Performance ] ------------------------------------------------ #
+    checks_read_timeout: '5'
+    global.port_timeout.max_sec: '300'
+    global.port_timeout.tcp: ''
+    engine.max: ~  # computed from the CPU count (8 per core)
+    engine.max_hosts: '16'
+    engine.max_checks: '64'
+    engine.min: ~  # computed from the CPU count (2 per core)
+    engine.optimal_hosts: '2'
+    global.max_hosts: ~  # computed from the hardware at first start
+    global.max_scans: '0'
+    global.max_simult_tcp_sessions: ~  # computed from the platform (desktop or server)
+    host.max_simult_tcp_sessions: '0'
+    max_checks: '5'
+    max_hosts: '256'
+    max_simult_tcp_sessions: ''
+    qdb_mem_usage: 'low'
+    plugins_timeout: '320'
+    reduce_connections_on_congestion: 'no'
+    stop_scan_on_disconnect: 'no'
+    stop_scan_on_hang: 'false'  # deprecated by Tenable
+    max_http_connections: '600'
+    max_http_connections_hard: '3000'
+    xml_enable_plugin_attributes: 'false'
+    remediations_limit: '500'
+    global.log.engine_details: 'false'
+    global.max_portscanners: ~  # computed from global.max_hosts and engine.max
+    process_priority: 'normal'
+    process_priority_custom: '0'
+    db_synchronous_setting: 'NORMAL'
+    backend_socket_read_timeout: '60'
+    scratchpad_max_size_mb: '0'
+    #endregion --- [ Settings: Performance ] ------------------------------------------------ #
+
+    #region ------ [ Settings: Logging ] ---------------------------------------------------- #
+    backend_log_level: 'normal'
+    dumpfile: '/opt/nessus/var/nessus/logs/nessusd.dump'
+    dumpfile_rot: 'size'
+    dumpfile_max_size: '512'
+    dumpfile_rotation_time: '1'
+    dumpfile_max_files: '100'
+    log_details: 'false'
+    log_whole_attack: 'no'
+    logfile: '/opt/nessus/var/nessus/logs/nessusd.messages'
+    logfile_rot: 'size'
+    logfile_max_files: '100'
+    logfile_max_size: '512'
+    logfile_rotation_time: '1'
+    www_logfile: '/opt/nessus/var/nessus/logs/www_server.log'  # deprecated by Tenable
+    logfile_msec: 'false'
+    nasl_log_type: 'normal'
+    scanner.metrics: '0'
+    write_coverage_data: 'false'
+    plugin_fork_warn_threshold: '1000'
+    plugin_fork_trace: '0'
+    #endregion --- [ Settings: Logging ] ---------------------------------------------------- #
+
+    #region ------ [ Settings: Miscellaneous ] ---------------------------------------------- #
     # Plugins update themselves daily...
     auto_update: 'yes'
-    # ...but the software does not. The installed version stays the pinned, digest-verified RPM
-    # this role installed, and fapolicyd, which trusts files by their RPM digest, keeps trusting it.
+    auto_update_delay: '24'
+    # ...but the software does not: neither of the two switches that let Nessus replace its own
+    # binaries is on. The installed version stays the pinned, digest-verified RPM this role
+    # installed, and fapolicyd, which trusts files by their RPM digest, keeps trusting it.
+    auto_update_ui: 'no'
+    auto_update_was_plugins: 'true'
+    auto_update_plugin_locales: 'true'
+    config_file: '/opt/nessus/etc/nessus/nessusd.db'
+    dbg_port: ''
+    listen_port: '1241'  # deprecated by Tenable
+    remote_listen_port: ''
+    child_node_listen_port: ''
+    report_cleanup_threshold_days: '30'
+    report_crashes: 'yes'
+    scan_history_expiration_days: '0'
+    orphaned_scan_cleanup_days: '30'
+    old_user_files_cleanup_hours: '0'
+    triggered_scan_history_cleanup_days: '7'
+    retain_policy_ingested_files: 'false'
+    packet_capture_archive_cleanup_days: '30'
+    source_ip: ''
+    ms_agent_sleep: '30'
+    max_http_client_requests: '4'
+    path_to_java: ''
+    java_heap_size: 'auto'
+    global.path_to_docker: ''
+    global.was_image_name: 'tenable/was-scanner'
+    global.was_image_tag: 'latest'
+    global.was_container_port: '18080'
+    sys_pread_timeout_msec: '5000'
+    docker_pull_timeout_msec: '300000'
+    windows_minidump: 'false'
+    send_telemetry: 'true'
+    telemetry_period: '1440'
+    disable_guides: 'no'
+    scan_stats_cleanup_days: '30'
+    scan_stats_cleanup_rows: '1000000'
+    show_initial_scan_wizard: 'true'
+    scanner_update_channel: 'ga'
+    agent_update_channel: 'ga'
     disable_core_updates: 'yes'
+    disable_gzip: 'false'
+    compliance_generate_description: 'false'
+    plugin_healthcheck_frequency: '10080'
+    allow_special_chars_in_username: 'false'
+    event_days_to_keep: '30'
+    backup_days_to_keep: '30'
+    hide_activation_code: 'false'
+    plugin_detail_locale: 'en'
+    plugin_detail_locale_enabled: 'false'
+    plugin_detail_locale_current: ~  # state: a JSON record Nessus rewrites as locales download
+    offline_mode: 'false'
+    perform_global_db_init_integrity_check: 'true'
+    preferred_report_format: 'pdf'
+    #endregion --- [ Settings: Miscellaneous ] ---------------------------------------------- #
+
+    #region ------ [ Settings: Custom ] ----------------------------------------------------- #
+    acas_classification: ''
+    #endregion --- [ Settings: Custom ] ----------------------------------------------------- #
+
+    #region ------ [ Settings: Stored At Install, Absent From The Catalogue ] --------------- #
+    bw_permanent_blackout_window: 'no'
+    bw_prevent_agent_scans: 'yes'
+    bw_prevent_core_updates: 'yes'
+    bw_prevent_plugin_updates: 'yes'
+    track_unique_agents: 'yes'
+    #endregion --- [ Settings: Stored At Install, Absent From The Catalogue ] --------------- #
 
   #endregion --- [ Listener and settings ] --------------------------------------------------- #
 

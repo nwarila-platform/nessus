@@ -70,6 +70,7 @@
 !/ansible/applications/nessus_scanner/tasks/clean_redhat.yml
 !/ansible/applications/nessus_scanner/tasks/main.yml
 !/ansible/applications/nessus_scanner/tasks/present_redhat.yml
+!/ansible/applications/nessus_scanner/tasks/read_settings.yml
 !/ansible/applications/nessus_scanner/tasks/stage_artifact.yml
 !/ansible/applications/nessus_scanner/tasks/validate.yml
 !/ansible/applications/nessus_scanner/vars/redhat.yml

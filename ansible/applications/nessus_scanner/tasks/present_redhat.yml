@@ -8,7 +8,7 @@
 #   01 trust the vendor signing key                   07 the one administrator account
 #   02 adopt the volume's scanner, or install one     08 register and fetch the plugins
 #   03 start the service                              09 wait until ready -- over HTTPS validated
-#   04 assert the declared settings                      against the declared CA and hostname
+#   04 converge every setting                            against the declared CA and hostname
 #   05 admit the listener in firewalld                10 prove the account by signing in
 #                                                     11 verify the whole result against the machine
 #
@@ -37,6 +37,17 @@
     __nessus_scanner_settings__: >-
       {{ nessus_scanner_running.settings
          | combine({'xmlrpc_listen_port': nessus_scanner_running.listener.port | string}) }}
+    # The settings this role converges: every declared one except those left to Nessus (~).
+    __nessus_scanner_managed__: >-
+      {{ __nessus_scanner_settings__ | dict2items | rejectattr('value', 'none') | items2dict }}
+    # Settings Nessus 10.12.4 stores at install without listing them in its own catalogue
+    # (measured 2026-10-01). They are real, so declaring them is not a typo.
+    __nessus_scanner_uncatalogued__:
+      - 'bw_permanent_blackout_window'
+      - 'bw_prevent_agent_scans'
+      - 'bw_prevent_core_updates'
+      - 'bw_prevent_plugin_updates'
+      - 'track_unique_agents'
     __nessus_scanner_pem__:
       key: "{{ __temp_dir__.path }}/nessus-https-key.pem"
       certificate: "{{ __temp_dir__.path }}/nessus-https-certificate.pem"
@@ -357,39 +368,67 @@
 
     #endregion --- [ Process: 03 Start The Service ] ---------------------------------------- #
 
-    #region ------ [ Process: 04 Assert The Declared Settings ] ----------------------------- #
-    # 'fix --set' accepts ANY name (measured: an unknown name is stored as readily as a real
-    # one), so the declared names are the reviewer's responsibility and this only guarantees the
-    # store holds what they say. Read first; write only what differs.
+    #region ------ [ Process: 04 Converge Every Setting ] ------------------------------------ #
+    # Every setting this Nessus has is declared: the role's defaults name each one at the
+    # product's own value, the playbook overrides any of them by name, and ~ leaves one to Nessus.
+    # 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a real one),
+    # so a declared name this Nessus does not have is refused here instead of being kept silently.
+    # Read once; write only what differs; read back.
 
-    - name: 'BEGIN | Read The Declared Settings'
-      changed_when: false
-      failed_when: false
-      loop: "{{ __nessus_scanner_settings__ | dict2items }}"
-      loop_control:
-        label: "{{ item.key }}"
-      register: '__nessus_scanner_settings_read__'
+    - name: 'BEGIN | Read Every Setting'
+      ansible.builtin.include_tasks:
+        file: 'read_settings.yml'
 
-      ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--get', "{{ item.key }}" ]
+    - name: 'VERIFY | Refuse A Setting This Nessus Does Not Have'
+      vars:
+        __unknown__: >-
+          {{ __nessus_scanner_managed__ | list
+             | difference(__nessus_scanner_settings_known__ + __nessus_scanner_uncatalogued__)
+             | reject('match', '^timeout[.][0-9]+$') | list }}
+      ansible.builtin.assert:
+        that: __unknown__ | length == 0
+        fail_msg: >-
+          Nessus {{ nessus_scanner_running.installer.version }} has no setting named
+          {{ __unknown__ | join(', ') }}. 'fix --set' would store it anyway and nothing would
+          read it, so correct the name or remove it from the declaration.
+        quiet: true
+
+    # A version bump can add settings. They stay at the product's values until declared, and this
+    # names them so the declaration can catch up.
+    - name: 'INFO | Report Settings This Nessus Has That Are Not Declared'
+      vars:
+        __undeclared__: >-
+          {{ __nessus_scanner_settings_known__ | difference(__nessus_scanner_settings__ | list)
+             | reject('match', '^timeout[.]') | list }}
+      when: __undeclared__ | length > 0
+      ansible.builtin.debug:
+        msg: >-
+          Nessus has settings this role does not declare, so they keep the product's own values:
+          {{ __undeclared__ | join(', ') }}. Declare them in the role defaults to manage them.
 
     - name: 'PROCESS | Write The Settings That Differ'
       changed_when: true
-      loop: "{{ __nessus_scanner_settings_read__.results }}"
-      loop_control:
-        label: "{{ item.item.key }}"
+      loop: "{{ __nessus_scanner_settings_differ__ }}"
       notify: 'nessus-restart-required'
-      # The product answers "The current value for '<name>' is '<value>'." -- the value is the
-      # fourth quote-delimited field. Unset, it answers "Could not retrieve value", which never
-      # equals a declared value.
-      when: >-
-        ((item.stdout.split("'")[3] if (item.stdout.split("'") | length) >= 5 else '') | string)
-        != (item.item.value | string)
 
       ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set', "{{ item.item.key }}={{ item.item.value }}" ]
+        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set', "{{ item }}={{ __nessus_scanner_managed__[item] }}" ]
 
-    #endregion --- [ Process: 04 Assert The Declared Settings ] ----------------------------- #
+    - name: 'VERIFY | Read Every Setting Again'
+      when: __nessus_scanner_settings_differ__ | length > 0
+      ansible.builtin.include_tasks:
+        file: 'read_settings.yml'
+
+    - name: 'VERIFY | Require Every Managed Setting To Hold Its Declared Value'
+      ansible.builtin.assert:
+        that: __nessus_scanner_settings_differ__ | length == 0
+        fail_msg: >-
+          Nessus did not keep the declared value of {{ __nessus_scanner_settings_differ__ | join(', ') }}
+          after it was written. The value may be outside what the setting accepts; see
+          'nessuscli fix --show <name>' for its options.
+        quiet: true
+
+    #endregion --- [ Process: 04 Converge Every Setting ] ------------------------------------ #
 
     #region ------ [ Process: 05 Admit The Listener In firewalld ] -------------------------- #
     # Every ACTIVE zone, because a zone is active only while it holds an interface or source,

@@ -6,8 +6,7 @@ registered scanner serving HTTPS with a certificate the deployment owns. In one 
 1. trusts Tenable's RPM signing key, refused unless its fingerprint is the pinned one;
 2. installs the pinned RPM from a copy verified against its SHA-256 **and** the vendor signature,
    on the guest, immediately before `dnf` installs it;
-3. starts the service and asserts the declared settings (TLS 1.2 floor, plugin updates on, core
-   updates off);
+3. starts the service and converges **every** Nessus setting to its declaration (below);
 4. admits the listener in every active firewalld zone;
 5. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
    certificate and CA as a set, and imports them into Nessus when what it serves differs;
@@ -52,6 +51,42 @@ the service, which live on the OS disk.
 `restorecon` labels the install root on every converge and changes only what policy disagrees
 with, because a filesystem made for it starts unlabelled. `state=absent` empties the install root
 rather than removing it, because the mount point is the disk role's.
+
+## Settings
+
+Every setting Nessus has is declared, so every one is configured through CI/CD. For 10.12.4 that
+is 160 settings: the 157 in the product's own catalogue (`nessuscli fix --show`) and 5 it stores at
+install without cataloguing. They live in `defaults/main.yml`, grouped by the product's own
+categories, each at the product's own value unless a comment says otherwise. To change one, set it
+by name in the playbook, and the next deploy converges it:
+
+```yaml
+nessus_scanner:
+  settings:
+    xmlrpc_idle_session_timeout: '15'
+    login_banner: 'Authorized use only.'
+```
+
+On every converge the role:
+- reads the catalogue and the store once, rather than once per setting;
+- refuses a declared name this Nessus does not have, because `fix --set` would store a typo
+  silently;
+- writes only the settings whose value differs, treating `yes`/`no` and `true`/`false` as equal
+  because Nessus reports booleans both ways;
+- reads every setting back and requires each to hold its declared value;
+- names any setting Nessus has that the declaration lacks, which is how a version bump shows up.
+
+`~` leaves a setting to Nessus. Six are left that way by default: five that Nessus computes from
+the hardware (`engine.max`, `engine.min`, `global.max_hosts`, `global.max_portscanners`,
+`global.max_simult_tcp_sessions`), and `plugin_detail_locale_current`, which is state Nessus
+rewrites itself. Per-plugin timeouts are declared as `timeout.<plugin id>`. Values must be quoted,
+because an unquoted `yes` is a YAML boolean.
+
+Four values are deliberate rather than the product's:
+- `ssl_mode: tls_1_2`, the TLS floor;
+- `auto_update: yes`, so plugins stay current;
+- `disable_core_updates: yes` and `auto_update_ui: no`, so the software never replaces itself. The
+  installed version stays the pinned RPM, which fapolicyd trusts by its digest.
 
 ## HTTPS
 

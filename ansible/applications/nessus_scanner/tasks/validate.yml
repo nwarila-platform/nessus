@@ -65,10 +65,15 @@
         | reject('match', '^[a-z][a-z0-9_.]*$') | list | length == 0
       - nessus_scanner_running.settings | dict2items | map(attribute='value') | map('string')
         | select('search', '[\r\n]') | list | length == 0
+      # An unquoted yes, no, true or false is a YAML boolean, which would reach Nessus as 'True'
+      # or 'False' rather than the word written.
+      - nessus_scanner_running.settings | dict2items | map(attribute='value')
+        | select('boolean') | list | length == 0
       # The listener port has one source of truth, listener.port, so naming it twice is refused
       # rather than letting whichever merged last decide.
       - "'xmlrpc_listen_port' not in nessus_scanner_running.settings"
     fail_msg: >-
-      Refusing to deploy: settings must be a map of lower-case setting names to single-line
-      values, and must not name xmlrpc_listen_port -- set listener.port instead.
+      Refusing to deploy: settings must be a map of lower-case setting names to single-line,
+      quoted values, or ~ to leave a setting to Nessus. It must not name xmlrpc_listen_port --
+      set listener.port instead.
     quiet: true

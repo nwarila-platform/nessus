@@ -41,12 +41,17 @@
   because the replacement machine must register again and an Essentials code registers once
   (TD-007).
 
-## TD-004 — OPEN — `disable_core_updates` is declared but proven only by its effect
+## TD-004 — OPEN — software self-updates are switched off but proven only by their effect
 
-- **Recorded:** 2026-09-30.
+- **Recorded:** 2026-09-30. **Updated:** 2026-10-01.
 - **Issue:** `nessuscli fix --set` accepts any name, so storing `disable_core_updates=yes` does not
   prove Nessus honours it. That was measured on 2026-09-30: an unknown name is stored as readily
   as a real one.
+- **Progress (2026-10-01):** both switches are now known to be real. The product's own catalogue
+  lists `disable_core_updates` ("Disable software updates on this managed scanner") and
+  `auto_update_ui` ("Automatically download and apply Nessus updates"), and the role refuses any
+  name the catalogue lacks. The first describes a *managed* scanner, so the role now sets both:
+  `disable_core_updates: yes` and `auto_update_ui: no`.
 - **Mitigation in place:** every converge asserts that the installed RPM version equals the pin,
   and the idempotency gate fails on any change. A core self-update surfaces as a failed run, not
   as silent drift.
