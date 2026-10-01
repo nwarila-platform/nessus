@@ -197,7 +197,7 @@
         validate_certs: true
 
     # credential_resolver owns the SSH port: the winning set supplies it, or it publishes null and
-    # the SSH plugin's default, 22, applies -- so the rule reads that default where it is null.
+    # ssh's own default, 22, applies -- so the rule reads that default where it is null.
     - name: 'PROCESS | Write The Host nftables Ruleset'
       register: '__nessus_nftables_ruleset__'
       ansible.builtin.copy:
