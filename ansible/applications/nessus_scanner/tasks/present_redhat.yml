@@ -572,9 +572,10 @@
     # Read once and write only what differs; 'fix --set' itself refuses a value outside the
     # setting's range (measured 2026-10-01). 'nessuscli fix' exits 1 with "The global.db is not
     # yet intitialized" (sic) for tens of seconds after a first start (measured 2026-09-30; the
-    # exit status 2026-10-01), so the first read of the store retries until it exits 0.
+    # exit status 2026-10-01), so the catalogue read, the first 'nessuscli fix' after the start,
+    # retries until it exits 0.
 
-    - name: 'PROCESS | Read The Settings Catalogue'
+    - name: 'PROCESS | Wait For The Settings Store And Read Its Catalogue'
       changed_when: false
       check_mode: false
       delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
@@ -1118,7 +1119,7 @@
 
     - name: 'PROCESS | Require Room For The Plugin Set'
       vars:
-        __free_kib__: "{{ (__nessus_scanner_free__.stdout_lines[-1].split())[3] | int }}"
+        __free_kib__: "{{ __nessus_scanner_free__.stdout_lines[-1].split()[3] | int }}"
       when:
         - not (ansible_check_mode and __install_required__ | bool)
         - __nessus_scanner_registration__.rc != 0
@@ -1206,9 +1207,9 @@
     # CA, so --check skips every HTTPS step, the account's included.
     #
     # It first waits for Nessus to SETTLE: 'ready', or 'register' with its engine and feed both
-    # ready. A registered scanner that settles on 'register' holds a stale setup state; it is
-    # restarted once, and then only 'ready' passes (measured 2026-09-30 on 10.12.4: everything
-    # ready, status 'register' for 55 minutes; one restart, 'ready' 95 seconds later).
+    # ready. A scanner that settles on 'register' -- registered by now -- holds a stale setup
+    # state; it is restarted once, and then only 'ready' passes (measured 2026-09-30 on 10.12.4:
+    # everything ready, status 'register' for 55 minutes; one restart, 'ready' 95 seconds later).
 
     - name: 'PROCESS | Wait Until Nessus Settles'
       changed_when: false
@@ -1247,31 +1248,11 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    - name: 'PROCESS | Read Whether The Settled Scanner Is Registered'
-      changed_when: false
-      failed_when: false
-      register: '__nessus_scanner_settled_registration__'
-      when:
-        - not ansible_check_mode
-        - __nessus_scanner_status__.json.status | default('') == 'register'
-
-      ansible.builtin.command:
-        argv:
-          - "{{ nessus_scanner_running.cli_path }}"
-          - 'fetch'
-          - '--check'
-        expand_argument_vars: true
-        stdin_add_newline: true
-        strip_empty_ends: true
-
-    # ----------------------------------------------------------------------------------------- #
-
     - name: 'PROCESS | Restart Once To Clear A Stale Setup State'
       register: '__nessus_scanner_unstuck__'
       when:
         - not ansible_check_mode
         - __nessus_scanner_status__.json.status | default('') == 'register'
-        - __nessus_scanner_settled_registration__.rc == 0
 
       ansible.builtin.systemd_service:
         daemon_reexec: false

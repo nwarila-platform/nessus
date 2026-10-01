@@ -150,16 +150,23 @@
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
   path skipping cleanly, and the playbook's own check-mode behaviour is decided.
 
-## TD-011 — OPEN — the settled-registration read is redundant
+## TD-011 — CLOSED 2026-10-01 — the settled-registration read is redundant
 
-- **Recorded:** 2026-10-01.
-- **Issue:** `PROCESS | Read Whether The Settled Scanner Is Registered` (nessuscli fetch --check)
-  runs when the readiness wait settles on 'register', to decide the one restart that clears a stale
-  setup state. In a real run it can only answer 0: the scanner was already registered, or
-  `PROCESS | Require The Registration To Succeed` passed. It is kept because the stale-'register'
-  path exists only on a registered AWS scanner, and removing the read there could not be proven
-  before merge.
-- **Exit criteria:** an AWS deploy that reaches the stale-'register' restart without the read.
+- **Recorded:** 2026-10-01. **Closed:** 2026-10-01.
+- **Original issue:** `PROCESS | Read Whether The Settled Scanner Is Registered`
+  (`nessuscli fetch --check`) ran when the readiness wait settled on 'register', to decide the one
+  restart that clears a stale setup state.
+- **Closure evidence:**
+  - The read and the restart's clause on it are removed. Control flow made the read answer 0 on
+    every path a run can reach: the scanner was already registered (`nessuscli fetch --check`
+    answered 0), or `PROCESS | Require The Registration To Succeed` passed, in a block with no
+    rescue.
+  - Parity: where the read answered 0, the restart runs exactly as before. Were it ever to answer
+    non-zero on a registered scanner, the restart now runs where the readiness require would have
+    failed for certain. A scanner that is genuinely unregistered still fails loudly at END's
+    registration proof.
+  - The stale-'register' restart has not run without the read: no lab scanner is registered, and no
+    AWS deploy since has settled on 'register'.
 
 ## TD-012 — OPEN — the fapolicyd trust refresh may be redundant
 
