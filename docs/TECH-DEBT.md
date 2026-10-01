@@ -134,20 +134,20 @@
   steps that need the product installed are skipped whenever the pinned version is not installed,
   and steps that depend on an earlier change in the same run are skipped under `--check`. Setting
   drift is reported as changed, and so is an install that is due, as its fetch. Not covered:
-  - The playbook's own tasks and the framework roles it composes are outside this change's
-    check-mode scope.
-  - The two S3 fetches keep the Golden's form (no `check_mode: false`), so under `--check` nothing
-    is downloaded, and the framework loader creates no temporary directory to stage into. Every
-    step that reads a fetched or staged file is skipped, including the HTTPS steps that trust the
-    CA decoded from the bundle. Not reported, therefore: the signing-key trust, a missing
-    administrator account, a lost registration, certificate drift and administrator-password
-    drift. That `s3_object` reports a skipped get as changed is read from amazon.aws 11.4.0's
-    source ("GET operation skipped - running in check mode"), never run: the lab replaces the
-    fetch, and the deploy never runs `--check`.
+  - The playbook's own tasks and the framework roles it composes are not check-mode-proven.
+  - The two S3 fetches keep pdq-deploy-inventory's form (no `check_mode: false`), so under
+    `--check` nothing is downloaded, and the framework loader creates no temporary directory to
+    stage into. The steps that read a fetched or staged file are skipped -- the signing-key trust
+    and the HTTPS steps that trust the CA decoded from the bundle -- so certificate and
+    administrator-password drift are not reported. That `s3_object` reports a skipped get as
+    changed is read from amazon.aws 11.4.0's source ("GET operation skipped - running in check
+    mode"), never run: the lab replaces the fetch, and the deploy never runs `--check`.
+  - A missing administrator account and a lost registration are read, but their writes are
+    skipped and only settings have a "would write" report; reporting them the same way is possible
+    later work. The install-root relabel and the FIPS module completion are skipped outright.
   - END proves what PROCESS did, so a check run skips it.
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
   path skipping cleanly, and the playbook's own check-mode behaviour is decided.
-
 
 ## TD-011 — OPEN — the settled-registration read is redundant
 

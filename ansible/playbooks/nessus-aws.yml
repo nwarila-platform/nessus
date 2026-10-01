@@ -298,7 +298,7 @@
     __proof_url__: 'https://localhost:8834'
     # The listener's CA, which the role converges to the declared CA.
     __proof_ca__: '/opt/nessus/com/nessus/CA/cacert.pem'
-    __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker | default('') }}"
+    __proof_folder__: "os-swap-proof-{{ nessus_data_proof_marker }}"
 
   tasks:
     - name: 'PROCESS | Require A Proof Action And Marker'
@@ -316,6 +316,7 @@
     - name: 'PROCESS | Mark Or Verify The Proof Record'
       block:
         - name: 'PROCESS | Sign In As The Administrator'
+          failed_when: false
           no_log: true
           register: '__proof_session__'
           ansible.builtin.uri:
@@ -345,7 +346,19 @@
             use_proxy: true
             validate_certs: true
 
+        # The sign-in carries no_log, which hides its response and the product's own error, so it
+        # never fails; this names any answer that is not a session.
+        - name: 'PROCESS | Require The Administrator To Sign In'
+          ansible.builtin.assert:
+            that: __proof_session__.status == 200
+            fail_msg: >-
+              The administrator could not sign in to prove the data volume: HTTP
+              {{ __proof_session__.status }} {{ __proof_session__.json.error | default('') }}
+              {{ __proof_session__.msg }}.
+            quiet: true
+
         - name: 'PROCESS | Write The Proof Record Before The OS Is Replaced'
+          changed_when: true
           no_log: true
           when: nessus_data_proof == 'mark'
           ansible.builtin.uri:

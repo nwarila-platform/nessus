@@ -93,6 +93,7 @@ nessus_scanner_defaults:
   #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
   #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
   settings:
+
     #region ------ [ Settings: User Interface ] ---------------------------------------------- #
     login_banner: ''
     scan_vulnerability_groups: 'yes'

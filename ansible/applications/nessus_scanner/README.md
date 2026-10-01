@@ -81,10 +81,10 @@ key, digest and password). The installer's object key defaults to the applicatio
 listener to port 8834; the caller may change either, and any setting by name (below). Nothing
 under this role names an account, bucket or secret.
 
-`tasks/validate.yml` enforces these inputs on the controller before anything touches the guest,
-and a failure names the input, never its value. `installer.version` is required for every state;
-the artifact sources and secrets only for `present`. [`meta/main.yml`](meta/main.yml) describes
-each input.
+`tasks/validate.yml` enforces these inputs on the controller before the role changes anything on
+the guest, and a failure names the input, never its value. `installer.version` is required for
+every state; the artifact sources and secrets only for `present`.
+[`meta/main.yml`](meta/main.yml) describes each input.
 
 ## Configuration
 
@@ -213,13 +213,15 @@ tool fails at `PROCESS | Require The Bundle To Decode`, and the message names th
   which include superseded private keys. The product, its data and its configuration are
   untouched.
 
-`present` and `absent` support `--check`. Reads run for real and END, which proves what PROCESS
-did, is skipped. Reported as changed: setting drift, and an install that is due (as its fetch).
-Not reported, because each depends on a file only a real run fetches or on a change it would make
-first: the signing-key trust, a missing administrator account, a lost registration, certificate
-drift and administrator-password drift. Whenever the pinned version is not installed, the steps
-that need it are skipped. TD-010 records these limits; the S3 fetch path under `--check` is
-unproven, because the lab replaces the fetch.
+`present` and `absent` support `--check`. Reads run for real, and END, which proves what PROCESS
+did, is skipped. Reported as changed: setting drift, the service's enable and start, and an
+install that is due (as its fetch). Read but not reported, because the write is skipped and only
+settings have a "would write" report: a missing administrator account and a lost registration.
+Not read, because they need a file only a real run fetches or stages: the signing-key trust,
+certificate drift and administrator-password drift. Skipped outright: the install-root relabel and
+the FIPS module completion. Whenever the pinned version is not installed, the steps that need it
+are skipped. TD-010 records these limits; the S3 fetch path under `--check` is unproven, because
+the lab replaces the fetch.
 
 ## Design invariants
 

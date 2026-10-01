@@ -8,7 +8,7 @@
 # the data volume already holds a scanner to adopt. PROCESS acts on those decisions and converges
 # everything else on difference -- the vendor key, the package, every setting, the certificate,
 # the one account and the registration. END proves the result. Conditions sit on the tasks,
-# never on a stage, so every run lists the same steps in the same order.
+# never on a stage.
 #
 # END runs on every real run, whatever PROCESS changed, so a converged host proves the same state
 # as a freshly built one; --check skips it, having no result to prove.
@@ -38,8 +38,6 @@
   block:
 
     #region ------ [ Begin: Read The Installed Package ] -------------------------------------- #
-    # Read with rpm rather than from the package facts, so the decision PROCESS gates on is a
-    # register that does not change when PROCESS installs the package part-way through.
 
     - name: 'BEGIN | Read The Installed Version Of The Package'
       changed_when: false
@@ -188,14 +186,10 @@
     # 'fix --show' is the product's own catalogue: every setting it knows and its effective
     # value, defaults included. A deprecated setting prints a '- Deprecated' line (or
     # 'Deprecated by <name>') between its name and its value, and an empty display name.
-    __marker__: '(?:    - Deprecated[^\n]*\n)?'
     __known__: >-
       {{ dict(__nessus_scanner_catalogue__.stdout
-              | regex_findall('(?m)^  [*] .*[(]([^()]+)[)]\n' ~ __marker__
-                              ~ '    - Current value: ?.*$')
-              | zip(__nessus_scanner_catalogue__.stdout
-                    | regex_findall('(?m)^  [*] .*[(][^()]+[)]\n' ~ __marker__
-                                    ~ '    - Current value: ?(.*)$'))) }}
+              | regex_findall('(?m)^  [*] .*[(]([^()]+)[)]\n(?:    - Deprecated[^\n]*\n)?'
+                              ~ '    - Current value: ?(.*)$')) }}
     # Each side becomes 'name=value' strings, so the comparison is one set difference. The
     # effective value is the catalogue's, overridden by the store's ('fix --list', which also
     # holds the settings stored at install without cataloguing), with every managed name padded
@@ -209,9 +203,7 @@
          | difference((dict(__managed__ | list | zip_longest([], fillvalue=''))
                        | combine(__known__,
                                  dict(__nessus_scanner_store__.stdout
-                                      | regex_findall('(?m)^([a-z0-9_.]+): ?.*$')
-                                      | zip(__nessus_scanner_store__.stdout
-                                            | regex_findall('(?m)^[a-z0-9_.]+: ?(.*)$')))))
+                                      | regex_findall('(?m)^([a-z0-9_.]+): ?(.*)$'))))
                       .items() | map('join', '=')
                       | map('regex_replace', '(?i)=(true|yes)$', '=yes')
                       | map('regex_replace', '(?i)=(false|no)$', '=no') | list)
@@ -574,7 +566,6 @@
     - name: 'PROCESS | Read Whether The Vendor FIPS Module Is Configured'
       check_mode: false
       register: '__nessus_scanner_fips_module__'
-      when: not (ansible_check_mode and __install_required__ | bool)
 
       ansible.builtin.stat:
         checksum_algorithm: 'sha1'
@@ -869,9 +860,9 @@
       changed_when: false
       failed_when: false
       loop:
-        - { part: 'key', args: [ '-nocerts', '-nodes' ] }
-        - { part: 'certificate', args: [ '-nokeys', '-clcerts' ] }
-        - { part: 'ca', args: [ '-nokeys', '-cacerts' ] }
+        - { part: 'key', select: '-nocerts', option: '-nodes' }
+        - { part: 'certificate', select: '-nokeys', option: '-clcerts' }
+        - { part: 'ca', select: '-nokeys', option: '-cacerts' }
       loop_control:
         label: "{{ item.part }}"
       no_log: true
@@ -879,9 +870,17 @@
       when: not ansible_check_mode
 
       ansible.builtin.command:
-        argv: "{{ [nessus_scanner_running.openssl_path, 'pkcs12', '-in', __temp_dir__.path ~ '/nessus-https.p12',
-                 '-passin', 'stdin', '-out', __pem__[item.part] ~ '.bag']
-                 + item.args }}"
+        argv:
+          - "{{ nessus_scanner_running.openssl_path }}"
+          - 'pkcs12'
+          - '-in'
+          - "{{ __temp_dir__.path }}/nessus-https.p12"
+          - '-passin'
+          - 'stdin'
+          - '-out'
+          - "{{ __pem__[item.part] }}.bag"
+          - "{{ item.select }}"
+          - "{{ item.option }}"
         expand_argument_vars: true
         stdin: "{{ nessus_scanner_running.certificate.password | string | trim }}"
         stdin_add_newline: true
@@ -953,68 +952,47 @@
       failed_when: false
       loop:
         - check: 'in-date'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ __pem__.certificate }}"
-            - '-noout'
-            - '-checkend'
-            - '86400'
+          file: "{{ __pem__.certificate }}"
+          flag: '-checkend'
+          value: '86400'
         - check: 'names-localhost'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ __pem__.certificate }}"
-            - '-noout'
-            - '-checkhost'
-            - 'localhost'
+          file: "{{ __pem__.certificate }}"
+          flag: '-checkhost'
+          value: 'localhost'
         - check: 'names-host'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ __pem__.certificate }}"
-            - '-noout'
-            - '-checkhost'
-            - "{{ inventory_hostname }}"
+          file: "{{ __pem__.certificate }}"
+          flag: '-checkhost'
+          value: "{{ inventory_hostname }}"
         - check: 'declared-fingerprint'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ __pem__.certificate }}"
-            - '-noout'
-            - '-fingerprint'
-            - '-sha256'
+          file: "{{ __pem__.certificate }}"
+          flag: '-fingerprint'
+          value: '-sha256'
         - check: 'declared-ca-fingerprint'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ __pem__.ca }}"
-            - '-noout'
-            - '-fingerprint'
-            - '-sha256'
+          file: "{{ __pem__.ca }}"
+          flag: '-fingerprint'
+          value: '-sha256'
         - check: 'served-fingerprint'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ nessus_scanner_running.served_certificate_path }}"
-            - '-noout'
-            - '-fingerprint'
-            - '-sha256'
+          file: "{{ nessus_scanner_running.served_certificate_path }}"
+          flag: '-fingerprint'
+          value: '-sha256'
         - check: 'served-ca-fingerprint'
-          argv:
-            - 'x509'
-            - '-in'
-            - "{{ nessus_scanner_running.served_ca_path }}"
-            - '-noout'
-            - '-fingerprint'
-            - '-sha256'
+          file: "{{ nessus_scanner_running.served_ca_path }}"
+          flag: '-fingerprint'
+          value: '-sha256'
       loop_control:
         label: "{{ item.check }}"
       register: '__nessus_scanner_certificate_read__'
       when: not ansible_check_mode
 
       ansible.builtin.command:
-        argv: "{{ [nessus_scanner_running.openssl_path] + item.argv }}"
+        argv:
+          - "{{ nessus_scanner_running.openssl_path }}"
+          - 'x509'
+          - '-in'
+          - "{{ item.file }}"
+          - '-noout'
+          - "{{ item.flag }}"
+          - "{{ item.value }}"
         expand_argument_vars: true
         stdin_add_newline: true
         strip_empty_ends: true
@@ -1437,11 +1415,11 @@
     # failures locked the account -- and the command line converges it: 'nessuscli chpasswd'
     # sets the password and clears a lock (measured 2026-10-01). END signs the session out.
     #
-    # Both sign-ins carry no_log, since their request holds the password, so a failure of their
-    # own would be censored. They never fail; the require at the end of this region names any
-    # answer that is not a session by its status and the product's own error. A scanner whose API
-    # is unavailable closes the connection on the sign-in: curl reads 412 "API is not available",
-    # and uri reports -1 (measured 2026-10-01).
+    # Both sign-ins carry no_log, since their request holds the password, and no_log hides their
+    # response -- with it the product's own error. They never fail; the require at the end of
+    # this region names any answer that is not a session by its status and the product's own
+    # error. A scanner whose API is unavailable closes the connection on the sign-in: curl reads
+    # 412 "API is not available", and uri reports -1 (measured 2026-10-01).
 
     - name: 'PROCESS | Sign In As The Administrator'
       changed_when: false
@@ -1581,7 +1559,8 @@
 # exactly once. The controller staging directory goes here too, not under END: it holds the
 # certificate bundle -- the HTTPS private key, protected only by its password -- and a run from
 # a workstation is not ephemeral, so it must not outlive a failed converge. It goes first, before
-# a restart that could fail.
+# a restart that could fail, and is gated on the stage's path because a failed tempfile registers
+# none.
 
   # Begin the 'Always' block
   always:

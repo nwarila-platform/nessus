@@ -89,7 +89,7 @@
   vars:
     __password__: "{{ nessus_scanner_running.administrator.password | default('') | string | trim }}"
     __minimum__: >-
-      {{ [12, nessus_scanner_running.settings.min_password_len | default(0, true) | int,
+      {{ [nessus_scanner_running.settings.min_password_len | default(0, true) | int,
           nessus_scanner_running.settings.xmlrpc_min_password_len | default(0, true) | int] | max }}
     __complex__: >-
       {{ (nessus_scanner_running.settings.passwd_complexity | default('no', true) | string | lower)
