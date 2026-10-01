@@ -65,10 +65,9 @@ The `aws-deploy` workflow owns the lifecycle:
 4. Terraform destroys the host.
 
 A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
-it recurs. `workflow_dispatch` adds five inputs:
+it recurs. `workflow_dispatch` adds four inputs:
 - `hold_minutes` keeps the scanner up for interactive work;
-- `os_swap` replaces the OS drive and proves the scanner resumes on its data volume (below);
-- `preserve_data` carries the scanner's data from one run to the next (below);
+- `os_swap` replaces the OS drive and proves the scanner adopts its data volume (below);
 - `absent_proof` proves `state=absent` removes it idempotently;
 - `skip_products` builds the host alone.
 
@@ -82,7 +81,7 @@ ssh -L 8834:localhost:8834 ec2-user@<public IPv4>
 Locally, `scripts/compose-and-run.sh` builds the same composed tree and runs the play, and
 `scripts/converge-held-bed.sh` converges a bed a workflow run is holding.
 
-## OS-drive replacement
+## The data volume: adopt what is there, otherwise install
 
 `/opt/nessus` is a standalone EBS volume, tagged `Function=NESSUS`, and independent of the OS disk.
 Tenable's supported way to move a scanner's data is to move `/opt/nessus` whole, so that is the
@@ -90,35 +89,22 @@ unit. The framework's `linux_disk_manager` resolves the volume by that tag, neve
 It partitions, formats and mounts a blank volume, and adopts an already-labelled one without
 reformatting it.
 
-Bumping the framework's `refresh_serial`, or dispatching `aws-deploy` with `os_swap=true`,
-**replaces the OS instance in place while the same data volume detaches and re-attaches**. The
-converge then:
-- reinstalls the package over the preserved install root;
-- keeps the settings, certificate and accounts it finds there;
-- registers again only if Tenable's registration did not survive the new machine.
+The scanner role follows the same rule as the fleet's other applications, PDQ, WSUS and Wazuh:
+**if the volume already holds a scanner, adopt it; otherwise install one.** A volume holds a
+scanner when the installation's identity is there: its UUID and the key its stored secrets are
+encrypted with. Adopting a scanner:
+- reinstalls the package over it when this OS lacks the package, and requires the identity to come
+  through that transaction byte for byte;
+- keeps the settings, certificate and account it finds, and writes none of them;
+- registers again, because Tenable binds a registration to the machine (TD-007).
 
-The opt-in proof writes a record into Nessus's database before the replacement and requires it to
-read back afterwards. It then runs the same `changed=0` gate on the rebuilt host.
-
-Tenable binds a registration to the machine, so the replacement registers again. With Nessus
-Essentials, an OS-drive replacement therefore needs a fresh activation code (TD-007).
-
-## Data preservation
-
-Every run is ephemeral by default: the data volume is created blank and destroyed with the host.
-A `preserve_data` dispatch changes both ends of that:
-- **Start.** The data volume is created from the newest completed snapshot tagged `Preserve=true`
-  for this repository, so the converge adopts a volume that already holds the scanner's
-  settings, certificate, account, plugins and scan results.
-- **Teardown.** The instance is stopped, which shuts Nessus down and unmounts the volume cleanly.
-  The volume is then snapshotted with the same tags before it is destroyed.
-
-The two newest preserved snapshots are kept. The runner can delete only snapshots carrying those
-tags.
-
-What carries over is everything Nessus stores: settings, the imported certificate, the account,
-plugins and scan results. What does not carry over is the registration, which Tenable binds to
-the machine; a new instance registers again (measured 2026-09-30).
+Each run's volume is created blank and destroyed with its host, so an ordinary run installs. The
+volume outlives the OS disk, not the run. Bumping the framework's `refresh_serial`, or
+dispatching `aws-deploy` with `os_swap=true`, **replaces the OS instance in place while the same
+data volume detaches and re-attaches**, and the converge adopts it. The opt-in proof writes a
+record into Nessus's database before the replacement and requires it to read back afterwards. It
+then runs the same `changed=0` gate on the rebuilt host. With Nessus Essentials, the replacement's
+registration needs a fresh activation code (TD-007).
 
 ## What must exist before a deploy
 
@@ -155,15 +141,15 @@ to end with no manual intervention, on the CIS RHEL 8 STIG image. In that run:
   against the declared CA and hostname;
 - the administrator account was proven by signing in;
 - a second converge reported `changed=0`;
-- the data volume was preserved as a snapshot, and the environment was destroyed.
+- the environment was destroyed.
 
-**Data preservation is proven on a new machine.** Run
-[36779428440](https://github.com/nwarila-platform/nessus/actions/runs/36779428440) seeded a new
-instance's data volume from that snapshot. The disk was adopted without formatting, and the
-package was reinstalled. The settings, certificate and account were found intact, with nothing
-rewritten, re-imported or re-created.
+**Adoption is proven on a new machine.** Run
+[36779428440](https://github.com/nwarila-platform/nessus/actions/runs/36779428440) gave a new
+instance a data volume that already held that scanner, restored from a snapshot of it. The disk
+was adopted without formatting, and the package was reinstalled. The settings, certificate and
+account were found intact, with nothing rewritten, re-imported or re-created.
 
-**Tenable's registration does not move with the data.** On a new machine the preserved scanner
+**Tenable's registration does not move with the data.** On a new machine the adopted scanner
 reports itself unregistered and must register again. That run's registration was refused because
 the Essentials code in S3 had already been spent (TD-007). So every new machine — every run, and
 every OS-drive replacement — needs a fresh Essentials code, or a licence whose code re-registers.

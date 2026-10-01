@@ -114,9 +114,10 @@ all_systems = [
     # hands it. The Function tag is the identity the disk role resolves the volume by, because a
     # volume id only exists after apply; it must be unique and must match the play. It is a
     # STANDALONE volume whose lifecycle is independent of the OS instance, so an OS replacement
-    # (refresh above) detaches and re-attaches the SAME volume instead of recreating it.
-    # skip_destroy=false tears it down with the ephemeral bed; a persistent deployment sets
-    # skip_destroy=true so the data survives a full `terraform destroy` too.
+    # (refresh above) detaches and re-attaches the SAME volume instead of recreating it, and the
+    # scanner role adopts what it holds. `terraform destroy` deletes it with the ephemeral bed:
+    # in the pinned framework skip_destroy governs only the ATTACHMENT (whether destroy detaches
+    # it), not whether the volume itself survives.
     #
     # Sized for the compiled plugin set, which is the bulk of it, plus scan results; the role
     # refuses to register with less than its minimum free. device_index 0 renders /dev/sdd,

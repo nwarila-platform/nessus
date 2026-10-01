@@ -74,9 +74,9 @@ POLICY_VERSIONS = {name: "v1" for name in POLICY_NAMES}
 POLICY_VERSIONS[f"{PREFIX}_runner_ec2"] = "v2"
 # v2 added ReadOnlyTheNessusDeploymentObjects, published from the tracked document on 2026-09-30.
 POLICY_VERSIONS[f"{PREFIX}_runner_s3"] = "v2"
-# v2 added the tag-scoped preserve_data snapshot grants; v3 the grant to create a volume FROM one
-# of those snapshots (both published 2026-09-30).
-POLICY_VERSIONS[f"{PREFIX}_runner_ebs"] = "v3"
+# v2 and v3 added snapshot grants for preserve_data; v4 withdrew them with the flag, republishing
+# v1's baseline document (all 2026-09-30).
+POLICY_VERSIONS[f"{PREFIX}_runner_ebs"] = "v4"
 EXPORTED = "2026-09-30"
 NOT_YET_APPLIED: list[str] = []
 

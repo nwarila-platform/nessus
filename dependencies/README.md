@@ -30,23 +30,10 @@ empty: the scanner joins no directory.
 
 ## Changes from the fleet baseline
 
-**`nwarila-platform_nessus_runner_ebs` v3 (published 2026-09-30):** the `preserve_data` grants.
-- `ec2:DescribeSnapshots`.
-- `ec2:CreateSnapshot`, but only from this repository's own volumes, and only into snapshots
-  requested with `Preserve=true`, `ManagedBy=aws-deploy` and this repository's identity tags.
-- Tag-on-create for those snapshots.
-- `ec2:DeleteSnapshot`, but only for snapshots carrying those same tags.
-- `ec2:CreateVolume` from a snapshot, but only from one carrying those same tags (v3).
-
-EC2 authorizes the source snapshot of `CreateVolume` as a resource of its own, and request-tag
-conditions do not apply to it. So the baseline `CreateTaggedVolume` grant cannot cover seeding;
-AWS Deploy run 36778799276 was refused on exactly that. IAM policy simulation of v3 allowed each
-intended case, including creating a volume from this repository's preserved snapshot. It denied
-the near-misses:
-- snapshotting another repository's volume;
-- creating an untagged snapshot;
-- deleting a snapshot without the preservation tags;
-- creating a volume from another repository's snapshot or from an untagged one.
+**`nwarila-platform_nessus_runner_ebs` v4 (published 2026-09-30) is the fleet baseline again**: v1's
+document, republished. Its v2 and v3 added tag-scoped snapshot grants for a `preserve_data` flag
+that carried the data volume between runs. The flag was withdrawn the same day, because the one
+thing it was wanted for, Tenable's registration, is bound to the machine and did not carry.
 
 **`nwarila-platform_nessus_runner_s3`** carries one statement the other repositories' runners do not:
 `ReadOnlyTheNessusDeploymentObjects`. It grants `s3:GetObject` on exactly the four objects under

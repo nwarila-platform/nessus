@@ -6,7 +6,7 @@
 #
 #   00 label the install root (its own data volume)   06 import the declared HTTPS certificate
 #   01 trust the vendor signing key                   07 the one administrator account
-#   02 install the pinned, verified RPM               08 register and fetch the plugins
+#   02 adopt the volume's scanner, or install one     08 register and fetch the plugins
 #   03 start the service                              09 wait until ready -- over HTTPS validated
 #   04 assert the declared settings                      against the declared CA and hostname
 #   05 admit the listener in firewalld                10 prove the account by signing in
@@ -42,6 +42,10 @@
       certificate: "{{ __temp_dir__.path }}/nessus-https-certificate.pem"
       ca: "{{ __temp_dir__.path }}/nessus-https-ca.pem"
     __nessus_scanner_base_url__: "https://localhost:{{ nessus_scanner_running.listener.port | int }}"
+    # What makes an install root one particular scanner, relative to the root: the
+    # installation's UUID and the key its stored secrets are encrypted with. Nessus writes both
+    # on its first start (measured 2026-09-30).
+    __nessus_scanner_identity__: [ 'var/nessus/uuid', 'var/nessus/master.key' ]
   block:
 
     #region ------ [ Begin: Create The Controller Staging Directory ] ----------------------- #
@@ -135,19 +139,57 @@
 
     #endregion --- [ Process: 01 Trust The Vendor Signing Key ] ----------------------------- #
 
-    #region ------ [ Process: 02 Install The Pinned, Verified RPM ] ------------------------- #
-    # Only when the installed version differs from the pin. The digest proves the bytes are the
-    # ones pinned; the signature proves the vendor built them. Both are checked on the guest
-    # copy -- the one dnf installs -- and dnf checks the signature again under the host's own
-    # policy. allow_downgrade because the pin is authoritative in both directions.
+    #region ------ [ Process: 02 Adopt The Volume's Scanner, Or Install One ] --------------- #
+    # The rule every application in the fleet follows: if the data volume already holds the
+    # application, ADOPT it; otherwise INSTALL it. The volume holds a scanner when any part of a
+    # scanner's identity is there, and three cases follow:
+    #   install  no identity on the volume: a fresh scanner is installed onto it.
+    #   adopt    an identity this OS has never run -- the OS was replaced under the volume. The
+    #            package is reinstalled over the existing tree, and everything else is kept.
+    #   in use   the identity of the scanner this OS already runs.
+    # Whenever a package transaction runs over an identity, that identity is read before and
+    # after it and must come through byte for byte: a transaction that changed it would start a
+    # different scanner on the adopted data. That stops here, by name, before the service starts.
+    #
+    # The package is installed only when the installed version differs from the pin. The digest
+    # proves the bytes are the ones pinned; the signature proves the vendor built them. Both are
+    # checked on the guest copy -- the one dnf installs -- and dnf checks the signature again
+    # under the host's own policy. allow_downgrade because the pin is authoritative both ways.
 
-    - name: 'BEGIN | Record Whether The Pinned Version Is Installed'
+    - name: 'BEGIN | Read The Identity Of The Scanner The Volume Holds'
+      loop: "{{ __nessus_scanner_identity__ }}"
+      register: '__nessus_scanner_identity_before__'
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ nessus_scanner_running.install_root }}/{{ item }}"
+
+    - name: 'BEGIN | Decide Whether To Adopt The Volume Or Install'
+      vars:
+        __installed_versions__: >-
+          {{ (ansible_facts.packages | default({}))[nessus_scanner_running.package_name]
+             | default([]) | map(attribute='version') | list }}
+        __identity_found__: >-
+          {{ __nessus_scanner_identity_before__.results
+             | selectattr('stat.exists') | list | length > 0 }}
       ansible.builtin.set_fact:
         __nessus_scanner_install_required__: >-
-          {{ ((ansible_facts.packages | default({}))[nessus_scanner_running.package_name]
-              | default([]) | map(attribute='version') | list)
-             != [nessus_scanner_running.installer.version] }}
+          {{ __installed_versions__ != [nessus_scanner_running.installer.version] }}
+        __nessus_scanner_data_action__: >-
+          {{ 'install' if not (__identity_found__ | bool)
+             else 'in use' if __installed_versions__ | length > 0
+             else 'adopt' }}
         cacheable: false
+
+    - name: 'INFO | Report Whether The Volume Is Adopted Or Installed'
+      ansible.builtin.debug:
+        msg: >-
+          {{ {'install': 'The data volume holds no scanner: installing one onto it.',
+              'adopt': 'The data volume holds a scanner this OS has never run: adopting it,'
+                       ~ ' with the package reinstalled over it.',
+              'in use': 'The data volume holds the scanner this OS already runs.'}
+             [__nessus_scanner_data_action__] }}
 
     - name: 'PROCESS | Stage The Installer'
       when: __nessus_scanner_install_required__ | bool
@@ -191,6 +233,41 @@
         disable_gpg_check: false
         name: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
         state: 'present'
+
+    - name: 'VERIFY | Read The Identity Again After The Package Transaction'
+      loop: "{{ __nessus_scanner_identity__ }}"
+      register: '__nessus_scanner_identity_after__'
+      when:
+        - __nessus_scanner_install_required__ | bool
+        - __nessus_scanner_data_action__ != 'install'
+
+      ansible.builtin.stat:
+        checksum_algorithm: 'sha256'
+        get_checksum: true
+        path: "{{ nessus_scanner_running.install_root }}/{{ item }}"
+
+    # Tripwire against a packaging change: each part of the identity that was there before the
+    # transaction is still there after it, byte for byte.
+    - name: 'VERIFY | Require The Package Transaction To Keep The Identity'
+      loop: >-
+        {{ __nessus_scanner_identity_before__.results
+           | zip(__nessus_scanner_identity_after__.results | default([])) | list }}
+      loop_control:
+        label: "{{ item.0.item }}"
+      when:
+        - __nessus_scanner_install_required__ | bool
+        - __nessus_scanner_data_action__ != 'install'
+        - item.0.stat.exists
+
+      ansible.builtin.assert:
+        that:
+          - item.1.stat.exists | default(false)
+          - item.1.stat.checksum | default('') == item.0.stat.checksum
+        fail_msg: >-
+          Installing the package over the scanner on the data volume changed or removed
+          {{ nessus_scanner_running.install_root }}/{{ item.0.item }}. Refusing to start a
+          scanner whose identity the package transaction altered.
+        quiet: true
 
     - name: 'PROCESS | Refresh The Installed Package Facts'
       when: __nessus_scanner_install_required__ | bool
@@ -244,7 +321,7 @@
           - "{{ nessus_scanner_running.install_root }}/lib/nessus/fips.so"
           - '-self_test_oninstall'
 
-    #endregion --- [ Process: 02 Install The Pinned, Verified RPM ] ------------------------- #
+    #endregion --- [ Process: 02 Adopt The Volume's Scanner, Or Install One ] --------------- #
 
     #region ------ [ Process: 03 Start The Service ] ---------------------------------------- #
     # Started here, before anything is configured, because the product's settings store does not
