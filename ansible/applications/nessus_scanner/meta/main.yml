@@ -33,8 +33,8 @@ galaxy_info:
   author: 'nwarila-platform'
   description: >-
     Tenable Nessus scanner for STIG-hardened RHEL 8. Installs the pinned, digest- and
-    signature-verified RPM, asserts its settings, admits the listener in firewalld, imports a
-    declared PKCS#12 certificate for HTTPS, registers the scanner and fetches its plugins, and
+    signature-verified RPM, converges every setting, imports a declared PKCS#12 certificate
+    for HTTPS, registers the scanner and fetches its plugins, and
     converges its one administrator account -- then proves the result over HTTPS validated against
     the declared CA and hostname.
   license: 'MIT'

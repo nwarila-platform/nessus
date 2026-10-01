@@ -4,15 +4,16 @@
 #
 # Converges a RHEL 8 host into a registered, HTTPS-serving Nessus scanner, then proves it.
 #
-#   00 label the install root (its own data volume)   06 import the declared HTTPS certificate
-#   01 trust the vendor signing key                   07 the one administrator account
-#   02 adopt the volume's scanner, or install one     08 register and fetch the plugins
-#   03 start the service                              09 wait until ready -- over HTTPS validated
+#   00 label the install root (its own data volume)   05 import the declared HTTPS certificate
+#   01 trust the vendor signing key                   06 the one administrator account
+#   02 adopt the volume's scanner, or install one     07 register and fetch the plugins
+#   03 start the service                              08 wait until ready -- over HTTPS validated
 #   04 converge every setting                            against the declared CA and hostname
-#   05 admit the listener in firewalld                10 prove the account by signing in
-#                                                     11 verify the whole result against the machine
+#                                                     09 prove the account by signing in
+#                                                     10 verify the whole result against the machine
 #
-# A converged host changes nothing: every step reads first and writes only on difference.
+# A converged host changes nothing: every step reads first and writes only on difference. The
+# host firewall is not this role's: the playbook owns it, so the role works the same behind any.
 #
 # STIG CONSTRAINTS THIS FILE IS SHAPED BY
 #   * fapolicyd denies an interpreter opening an untrusted script, so nothing here stages a
@@ -595,95 +596,7 @@
 
     #endregion --- [ Process: 04 Converge Every Setting ] ------------------------------------ #
 
-    #region ------ [ Process: 05 Admit The Listener In firewalld ] -------------------------- #
-    # Every ACTIVE zone, because a zone is active only while it holds an interface or source,
-    # and the listener must answer on whichever one the scanner's clients arrive through. The
-    # permanent rule is the declaration; the reload makes it the running one.
-
-    - name: 'BEGIN | Read Whether firewalld Is Running'
-      changed_when: false
-      failed_when: false
-      register: '__nessus_scanner_firewalld__'
-      when: nessus_scanner_running.firewall.manage | bool
-
-      ansible.builtin.command:
-        argv: [ 'firewall-cmd', '--state' ]
-
-    - name: 'PROCESS | Admit The Listener In Each Active Zone'
-      when:
-        - nessus_scanner_running.firewall.manage | bool
-        - __nessus_scanner_firewalld__.rc | default(1) == 0
-      block:
-        - name: 'BEGIN | Read The Active Zones'
-          changed_when: false
-          register: '__nessus_scanner_zones_read__'
-
-          ansible.builtin.command:
-            argv: [ 'firewall-cmd', '--get-active-zones' ]
-
-        # A zone's name is the first word of an unindented line; the indented lines under it
-        # list its interfaces and sources.
-        - name: 'BEGIN | Record The Active Zones'
-          ansible.builtin.set_fact:
-            __nessus_scanner_zones__: >-
-              {{ __nessus_scanner_zones_read__.stdout_lines | reject('match', '^[ ]')
-                 | map('trim') | reject('equalto', '') | map('split') | map('first') | list }}
-            cacheable: false
-
-        - name: 'VERIFY | Require At Least One Active Zone'
-          ansible.builtin.assert:
-            that: __nessus_scanner_zones__ | length > 0
-            fail_msg: 'firewalld is running with no active zone; the listener would answer nowhere.'
-            quiet: true
-
-        - name: 'BEGIN | Read Whether Each Zone Admits The Listener'
-          changed_when: false
-          failed_when: __nessus_scanner_zone_query__.rc not in [0, 1]
-          loop: "{{ __nessus_scanner_zones__ }}"
-          register: '__nessus_scanner_zone_query__'
-
-          ansible.builtin.command:
-            argv: [ 'firewall-cmd', '--permanent', "--zone={{ item }}",
-                    "--query-port={{ __nessus_scanner_port__ }}/tcp" ]
-
-        - name: 'PROCESS | Admit The Listener Permanently'
-          changed_when: true
-          loop: "{{ __nessus_scanner_zone_query__.results | selectattr('rc', 'equalto', 1) | list }}"
-          loop_control:
-            label: "{{ item.item }}"
-          register: '__nessus_scanner_zone_added__'
-
-          ansible.builtin.command:
-            argv: [ 'firewall-cmd', '--permanent', "--zone={{ item.item }}",
-                    "--add-port={{ __nessus_scanner_port__ }}/tcp" ]
-
-        - name: 'PROCESS | Load The Permanent Rules'
-          changed_when: true
-          when: __nessus_scanner_zone_added__ is changed
-
-          ansible.builtin.command:
-            argv: [ 'firewall-cmd', '--reload' ]
-
-        - name: 'VERIFY | Require Each Running Zone To Admit The Listener'
-          changed_when: false
-          loop: "{{ __nessus_scanner_zones__ }}"
-
-          ansible.builtin.command:
-            argv: [ 'firewall-cmd', "--zone={{ item }}", "--query-port={{ __nessus_scanner_port__ }}/tcp" ]
-
-    - name: 'INFO | Report That No Local Firewall Is Running'
-      when:
-        - nessus_scanner_running.firewall.manage | bool
-        - __nessus_scanner_firewalld__.rc | default(1) != 0
-      ansible.builtin.debug:
-        msg: >-
-          firewalld is not running on {{ inventory_hostname }}, so there is no local filter to
-          open for port {{ __nessus_scanner_port__ }}. A STIG host runs firewalld; this one does
-          not.
-
-    #endregion --- [ Process: 05 Admit The Listener In firewalld ] -------------------------- #
-
-    #region ------ [ Process: 06 Import The Declared HTTPS Certificate ] --------------------- #
+    #region ------ [ Process: 05 Import The Declared HTTPS Certificate ] --------------------- #
     # The bundle is decoded on the guest by the system OpenSSL, the FIPS-validated module, with
     # its password on stdin so it never appears in a process list. The key, the certificate and
     # the CA are then checked as a set -- the key opens the certificate, the CA signed it, it is
@@ -927,9 +840,9 @@
             path: "{{ item }}"
             state: 'absent'
 
-    #endregion --- [ Process: 06 Import The Declared HTTPS Certificate ] --------------------- #
+    #endregion --- [ Process: 05 Import The Declared HTTPS Certificate ] --------------------- #
 
-    #region ------ [ Process: 07 The One Administrator Account ] ---------------------------- #
+    #region ------ [ Process: 06 The One Administrator Account ] ---------------------------- #
     # Created BEFORE registration, from the command line, which needs neither the service nor
     # the API. The web tier reads whether setup is complete when the service starts, so the start
     # that follows registration must find the account already there (measured 2026-09-30: an
@@ -991,14 +904,14 @@
           nessuscli adduser did not report 'User added' (rc={{ __nessus_scanner_created__.rc | default('?') }}).
         quiet: true
 
-    #endregion --- [ Process: 07 The One Administrator Account ] ---------------------------- #
+    #endregion --- [ Process: 06 The One Administrator Account ] ---------------------------- #
 
     # A settings change, a new certificate or a new account takes effect only when the service
     # restarts; the handler runs once however many of them changed, and never when none did.
     - name: 'PROCESS | Apply Pending Restarts Before Registration'
       ansible.builtin.meta: 'flush_handlers'
 
-    #region ------ [ Process: 08 Register And Fetch The Plugins ] --------------------------- #
+    #region ------ [ Process: 07 Register And Fetch The Plugins ] --------------------------- #
     # 'fetch --check' answers 0 only for a registered installation. Registration runs with the
     # service stopped, as the vendor documents, and downloads the full plugin set before it
     # returns -- minutes, bounded by the task timeout rather than async (see the header). The
@@ -1075,9 +988,9 @@
             name: "{{ nessus_scanner_running.service_name }}"
             state: 'started'
 
-    #endregion --- [ Process: 08 Register And Fetch The Plugins ] --------------------------- #
+    #endregion --- [ Process: 07 Register And Fetch The Plugins ] --------------------------- #
 
-    #region ------ [ Process: 09 Wait Until Ready, Over Validated HTTPS ] ------------------- #
+    #region ------ [ Process: 08 Wait Until Ready, Over Validated HTTPS ] ------------------- #
     # This wait is also the HTTPS proof. It trusts ONLY the CA decoded from the declared bundle,
     # validates the chain and the hostname, and connects by the name 'localhost' the certificate
     # must carry -- so it cannot pass against a self-generated certificate, a different CA, or a
@@ -1166,9 +1079,9 @@
           {{ (__nessus_scanner_status_final__.json | default({})) | to_json }}
         quiet: true
 
-    #endregion --- [ Process: 09 Wait Until Ready, Over Validated HTTPS ] ------------------- #
+    #endregion --- [ Process: 08 Wait Until Ready, Over Validated HTTPS ] ------------------- #
 
-    #region ------ [ Process: 10 Prove The Account Over Validated HTTPS ] ------------------- #
+    #region ------ [ Process: 09 Prove The Account Over Validated HTTPS ] ------------------- #
     # The account exists (region 07); signing in proves the declared password opens it, over the
     # same CA- and hostname-validated HTTPS. A refused sign-in means the declared password moved,
     # and the account is converged to it.
@@ -1265,9 +1178,9 @@
         url: "{{ __nessus_scanner_base_url__ }}/session"
         validate_certs: true
 
-    #endregion --- [ Process: 10 Prove The Account Over Validated HTTPS ] ------------------- #
+    #endregion --- [ Process: 09 Prove The Account Over Validated HTTPS ] ------------------- #
 
-    #region ------ [ Verify: 11 The Whole Result, Read Back From The Machine ] --------------- #
+    #region ------ [ Verify: 10 The Whole Result, Read Back From The Machine ] --------------- #
 
     - name: 'VERIFY | Read The Installed Version'
       changed_when: false
@@ -1324,7 +1237,7 @@
           {{ __nessus_scanner_certificate__['declared-fingerprint'].stdout | trim }}).
         quiet: true
 
-    #endregion --- [ Verify: 11 The Whole Result, Read Back From The Machine ] --------------- #
+    #endregion --- [ Verify: 10 The Whole Result, Read Back From The Machine ] --------------- #
 
   always:
     - name: 'CLEANUP | Remove The Controller Staging Directory'

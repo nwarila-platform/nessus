@@ -107,3 +107,23 @@
 - **Exit criteria:** the playbook sets `login_banner` to the approved text, and a deploy shows it on
   the sign-in page.
 
+## TD-009 — ACCEPTED — the host firewall is nftables, not firewalld
+
+- **Recorded:** 2026-10-01.
+- **Decision:** the owner chose nftables directly as the host firewall: "mask firewalld, make the
+  role itself not care". The playbook masks firewalld and writes `/etc/sysconfig/nftables.conf`.
+  That ruleset is the host's whole filter:
+  - policy drop on input and forward;
+  - established traffic and loopback accepted, with spoofed loopback dropped;
+  - ICMP accepted;
+  - SSH and, while the scanner is present, its listener accepted, with new connections
+    rate-limited.
+  The role no longer manages any firewall.
+- **Effect on the RHEL 8 STIG:** firewalld stays installed but masked. RHEL-08-040100 (a firewall
+  installed) is still met. Its companion check that firewalld is *active* reports open, and
+  RHEL-08-040150 (firewalld's nftables backend) no longer applies, because nftables is used
+  directly. These are deviations by decision. The nftables ruleset is the mitigation, and its
+  rate limits carry RHEL-08-040150's intent.
+- **Exit criteria:** none while the decision stands. Revisit if the fleet's STIG evidence must
+  show firewalld active.
+

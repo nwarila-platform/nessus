@@ -127,12 +127,92 @@
     nessus_objects_bucket: "{{ aws_account_id }}-ansible"
     nessus_objects_prefix: 'applications/nessus'
     nessus_secret_prefix: "s3://{{ nessus_objects_bucket }}/{{ nessus_objects_prefix }}"
+    # The scanner's web listener: one value, so the host firewall below and the role agree on it.
+    nessus_listener_port: 8834
+
+  #region ------ [ Pre-Tasks: The Host Firewall Is nftables ] -------------------------------- #
+  # The host firewall is nftables itself, not firewalld (decision 2026-10-01, TD-009): firewalld
+  # is masked, and this ruleset is the host's whole filter. It admits SSH, which every play
+  # reaches the host by, and the scanner's listener while the scanner is present; everything else
+  # inbound is dropped, and new connections are rate-limited against floods. The role knows
+  # nothing of firewalls, so it works the same behind any.
+  pre_tasks:
+    - name: 'PROCESS | Install nftables'
+      ansible.builtin.dnf:
+        name: 'nftables'
+        state: 'present'
+
+    - name: 'PROCESS | Write The Host nftables Ruleset'
+      register: '__nessus_nftables_ruleset__'
+      vars:
+        __listener_open__: "{{ (state | default('present') | string | lower | trim) != 'absent' }}"
+      ansible.builtin.copy:
+        content: |
+          #!/usr/sbin/nft -f
+          # Managed by ansible/playbooks/nessus-aws.yml; a local edit is overwritten.
+          flush ruleset
+
+          table inet filter {
+              chain input {
+                  type filter hook input priority 0; policy drop;
+                  ct state established,related accept
+                  ct state invalid drop
+                  iif "lo" accept
+                  ip saddr 127.0.0.0/8 drop
+                  ip6 saddr ::1 drop
+                  meta l4proto { icmp, ipv6-icmp } accept
+                  tcp dport {{ ansible_port | default(22) }} ct state new limit rate 25/second burst 50 packets accept
+          {% if __listener_open__ | bool %}
+                  tcp dport {{ nessus_listener_port }} ct state new limit rate 25/second burst 50 packets accept
+          {% endif %}
+              }
+              chain forward {
+                  type filter hook forward priority 0; policy drop;
+              }
+              chain output {
+                  type filter hook output priority 0; policy accept;
+              }
+          }
+        dest: '/etc/sysconfig/nftables.conf'
+        group: 'root'
+        mode: '0600'
+        owner: 'root'
+        validate: '/usr/sbin/nft -c -f %s'
+
+    # Stopping firewalld removes its own rules, so until nftables loads a moment later the host
+    # filters nothing -- which cannot drop the session running this. Masked, so nothing starts it
+    # again behind this ruleset.
+    - name: 'PROCESS | Stop And Mask firewalld'
+      ansible.builtin.systemd_service:
+        masked: true
+        name: 'firewalld'
+        state: 'stopped'
+
+    - name: 'PROCESS | Enable And Start nftables'
+      register: '__nessus_nftables_service__'
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: 'nftables'
+        state: 'started'
+
+    - name: 'PROCESS | Load A Changed Ruleset'
+      when:
+        - __nessus_nftables_ruleset__ is changed
+        - __nessus_nftables_service__ is not changed
+      ansible.builtin.systemd_service:
+        name: 'nftables'
+        state: 'reloaded'
+
+  #endregion --- [ Pre-Tasks: The Host Firewall Is nftables ] -------------------------------- #
 
   #region ------ [ Roles ] -------------------------------------------------------------------- #
   roles:
     - role: 'nessus_scanner'
       vars:
         nessus_scanner:
+
+          listener:
+            port: "{{ nessus_listener_port }}"
 
           # What is installed, stated where a reader can see it. The digest is Tenable's published
           # SHA-256 for this build, verified on the GUEST immediately before dnf installs it; the

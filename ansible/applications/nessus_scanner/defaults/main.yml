@@ -309,14 +309,6 @@ nessus_scanner_defaults:
 
   #endregion --- [ Listener and settings ] --------------------------------------------------- #
 
-  #region ------ [ Firewall ] ---------------------------------------------------------------- #
-  # Open the listener in every active firewalld zone. STIG requires firewalld, so a host where it
-  # is not running is reported rather than failed: there is no local filter to open.
-  firewall:
-    manage: true
-
-  #endregion --- [ Firewall ] ---------------------------------------------------------------- #
-
   #region ------ [ Bounds ] ------------------------------------------------------------------ #
   # Bounds, not behaviour: how long each wait may run, never what it waits for.
   timeouts:

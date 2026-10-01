@@ -42,7 +42,7 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   certificates, accounts, scan data — is a standalone data volume. The OS disk is replaceable, and
   the pipeline proves the scanner resumes on its own database afterwards.
 - **Written for a hardened host.** FIPS mode, fapolicyd, `noexec` temporary directories, enforced
-  local-package signature checks and firewalld are all live on the target, and every step is
+  local-package signature checks and a default-drop nftables firewall are all live on the target, and every step is
   shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
 - **No stored cloud keys.** GitHub OIDC only, gated to protected `main`, with a separate tag-scoped
   cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest never

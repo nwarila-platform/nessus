@@ -7,17 +7,16 @@ registered scanner serving HTTPS with a certificate the deployment owns. In one 
 2. installs the pinned RPM from a copy verified against its SHA-256 **and** the vendor signature,
    on the guest, immediately before `dnf` installs it;
 3. starts the service and converges **every** Nessus setting to its declaration (below);
-4. admits the listener in every active firewalld zone;
-5. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
+4. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
    certificate and CA as a set, and imports them into Nessus when what it serves differs;
-6. creates the one administrator account from the command line, **before** registration, because
+5. creates the one administrator account from the command line, **before** registration, because
    the web tier reads whether setup is complete when the service starts;
-7. registers the scanner with its activation code and fetches the plugins;
-8. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**,
+6. registers the scanner with its activation code and fetches the plugins;
+7. waits until Nessus reports ready, **over HTTPS validated against the declared CA and hostname**,
    restarting once if a registered scanner settles on a stale `register` state (measured
    2026-09-30);
-9. proves the account by signing in to the API, converging its password if it moved;
-10. verifies the result against the machine: the installed version, the service, the
+8. proves the account by signing in to the API, converging its password if it moved;
+9. verifies the result against the machine: the installed version, the service, the
     registration, and the fingerprint of the certificate the listener actually serves.
 
 Every step reads before it writes, so a converged host reports no change.
@@ -155,7 +154,7 @@ tool fails at `PROCESS | Decode The Bundle`, and the message names the cause.
 | fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed and the vendor's FIPS-module step is re-run if it was denied mid-transaction |
 | `noexec` on `/tmp`, `/var/tmp`, `/home` | Nothing staged in the loader's temporary directory is executed |
 | FIPS mode | System OpenSSL decodes the bundle; RSA-3072 and SHA-256 throughout |
-| firewalld | The listener is admitted per active zone and proven in the running configuration |
+| Host firewall | Not the role's. The playbook masks firewalld and owns a default-drop nftables ruleset, so the role works the same behind any firewall |
 
 ## Inputs
 
@@ -166,7 +165,7 @@ role names an account, bucket or secret; the playbook supplies them.
 | State | Does |
 |---|---|
 | `present` | Everything above |
-| `absent` | Stops and removes the service, the package, the whole install root, the firewall rule and the signing key; proves none remains |
+| `absent` | Stops and removes the service, the package, the whole install root and the signing key; proves none remains |
 | `clean` | Removes the superseded certificate material each import leaves behind |
 
 ## Licence model
