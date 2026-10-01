@@ -82,11 +82,41 @@ the hardware (`engine.max`, `engine.min`, `global.max_hosts`, `global.max_portsc
 rewrites itself. Per-plugin timeouts are declared as `timeout.<plugin id>`. Values must be quoted,
 because an unquoted `yes` is a YAML boolean.
 
-Four values are deliberate rather than the product's:
-- `ssl_mode: tls_1_2`, the TLS floor;
-- `auto_update: yes`, so plugins stay current;
-- `disable_core_updates: yes` and `auto_update_ui: no`, so the software never replaces itself. The
-  installed version stays the pinned RPM, which fapolicyd trusts by its digest.
+### Hardening
+
+There is no DISA STIG for Nessus itself, so the defaults apply the common application controls
+that map onto its settings: the Application Security and Development (ASD) STIG, NIST SP 800-52r2
+for TLS, and FIPS 140. Each hardened value is marked `Hardened:` in `defaults/main.yml`, and each
+was proven in the lab on 2026-10-01 (RHEL 8, Nessus 10.12.4) without breaking the role or sign-in.
+
+| Setting | Value | Control | Measured in the lab |
+|---|---|---|---|
+| `ssl_mode` | `tls_1_3` | NIST SP 800-52r2 | TLS 1.2 refused with a protocol-version alert; TLS 1.3 negotiates `TLS_AES_256_GCM_SHA384` and validates against the declared CA |
+| `fips_mode` | `enforcing` | SC-13 | Nessus runs and its database stays readable |
+| `strict_certificate_validation` | `yes` | SC-23 | Linking to a manager then needs that manager's CA trusted |
+| `xmlrpc_idle_session_timeout` | `10` | ASD STIG APSC-DV-000080 | Admin sessions end after 10 idle minutes |
+| `user_max_login_attempt` | `3` | AC-7 | The fourth sign-in after three failures is refused as locked; `nessuscli chpasswd`, the role's own recovery, unlocks it |
+| `min_password_len`, `xmlrpc_min_password_len` | `15` | ASD STIG APSC-DV-001680 | Shorter passwords refused, from the command line too |
+| `passwd_complexity` | `yes` | IA-5(1) | Nessus requires 3 of 4 character classes; the role's validation requires all 4 of the declared password |
+| `passwd_notifications` | `yes` | AC-9 | Last successful and failed sign-ins shown |
+| `max_sessions_per_user` | `3` | AC-10 | A fourth concurrent session is refused; the role holds one and signs out |
+| `report_crashes`, `send_telemetry` | `no` | CM-7 | Nothing goes to Tenable but feed traffic |
+| `disable_guides` | `yes` | CM-7 | In-app messaging off (it needs telemetry anyway) |
+| `hide_activation_code` | `yes` | IA-5 | The licence secret is not shown in the interface |
+| `log_details` | `yes` | AU-3 | Scan logs name the user and the scan |
+| `qdb_mem_usage` | `high` | Performance | Tenable's setting for a dedicated server |
+
+Two more are deliberate: `auto_update: yes` keeps plugins current, and `disable_core_updates: yes`
+with `auto_update_ui: no` stops the software replacing itself. The installed version stays the
+pinned RPM, which fapolicyd trusts by its digest.
+
+Left at the product's value on purpose, because the hardened value breaks common use:
+- `niap_mode: enforcing` pins TLS 1.2 (`ssl_mode: niap`), which conflicts with TLS 1.3 only.
+- `audit_file_signature_check: yes` refuses unsigned custom audit files, a common compliance
+  workflow.
+- `force_pubkey_auth: yes` disables password sign-in, which the role and the interface use.
+- `listen_address: 127.0.0.1` would close the listener to Security Center and linked scanners.
+- `login_banner` and `acas_classification` need the organization's own text and marking (TD-008).
 
 ## HTTPS
 

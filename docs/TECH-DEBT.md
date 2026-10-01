@@ -96,3 +96,14 @@
 - **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), so
   that ordinary runs and OS-drive replacements stop consuming codes, and an `os_swap` run passes
   end to end.
+
+## TD-008 — OPEN — the sign-in banner waits on the organization's text
+
+- **Recorded:** 2026-10-01.
+- **Issue:** a system-use notice before sign-in is a common STIG control (AC-8), and Nessus shows
+  one through `login_banner`. The text is the organization's to write: the DoD Notice and Consent
+  Banner applies only to DoD systems, and `acas_classification` only to systems that carry a
+  classification marking. Both stay empty until that text is chosen.
+- **Exit criteria:** the playbook sets `login_banner` to the approved text, and a deploy shows it on
+  the sign-in page.
+

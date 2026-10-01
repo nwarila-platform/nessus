@@ -84,8 +84,10 @@ nessus_scanner_defaults:
   # catalogue and the store once, writes only what differs, and reads the result back. A name
   # this Nessus does not have is refused, because 'fix --set' would store it silently.
   #   * To change one, set it by name in the playbook's nessus_scanner.settings.
-  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state Nessus
-  #     rewrites itself, so pinning the lab's values would be wrong here.
+  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state
+  #     Nessus rewrites itself, so pinning the lab's values would be wrong here.
+  #   * 'Hardened:' marks a value changed from the product's for a common STIG control. Controls
+  #     left at the product's value are listed in the role README, with the reason.
   #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
   #   * Per-plugin timeouts are 'timeout.<plugin id>': '<seconds>'.
   # xmlrpc_listen_port is derived from listener.port and must not be named here too.
@@ -108,26 +110,42 @@ nessus_scanner_defaults:
     #endregion --- [ Settings: User Interface ] --------------------------------------------- #
 
     #region ------ [ Settings: Password ] --------------------------------------------------- #
-    xmlrpc_idle_session_timeout: '30'
-    user_max_login_attempt: '0'
-    min_password_len: '0'
-    xmlrpc_min_password_len: '0'
-    passwd_complexity: 'false'
-    passwd_notifications: 'false'
+    # Hardened: end idle sessions after 10 minutes, the ASD STIG's limit for an
+    # administrator (APSC-DV-000080); Essentials' one account is one.
+    xmlrpc_idle_session_timeout: '10'
+    # Hardened: lock an account after 3 consecutive failures (AC-7). The role's own
+    # recovery clears a lock: 'nessuscli chpasswd' unlocks it (lab-measured).
+    user_max_login_attempt: '3'
+    # Hardened: 15 characters minimum (ASD STIG APSC-DV-001680), for the command line...
+    min_password_len: '15'
+    # ...and for the web interface and API.
+    xmlrpc_min_password_len: '15'
+    # Hardened: Nessus then requires 3 of the 4 character classes; validate.yml holds
+    # the declared password to all 4, as the STIG does (IA-5(1)).
+    passwd_complexity: 'yes'
+    # Hardened: show the last successful and failed sign-ins (AC-9).
+    passwd_notifications: 'yes'
     #endregion --- [ Settings: Password ] --------------------------------------------------- #
 
     #region ------ [ Settings: Security ] --------------------------------------------------- #
-    # TLS 1.2 is the floor; TLS 1.3 is negotiated when the client offers it.
-    ssl_mode: 'tls_1_2'
+    # Hardened: TLS 1.3 only. NIST SP 800-52r2 requires TLS 1.2 and asks for 1.3; this host
+    # refuses 1.2 outright (lab: a TLS 1.2 handshake is refused, 1.3 negotiates AES-256-GCM).
+    ssl_mode: 'tls_1_3'
     ssl_cipher_list: 'modern'
     nasl_no_signature_check: 'no'
     audit_file_signature_check: 'false'
     cipher_files_on_disk: 'true'
-    max_sessions_per_user: '0'
+    # Hardened: at most 3 concurrent sessions per user (AC-10). The role holds one at
+    # a time and signs out. A Security Center-managed scanner may need more.
+    max_sessions_per_user: '3'
     force_pubkey_auth: 'false'
-    strict_certificate_validation: 'false'
+    # Hardened: validate certificates even on a first remote link (SC-23). Linking
+    # to a manager then needs that manager's CA to be trusted.
+    strict_certificate_validation: 'yes'
     niap_mode: 'non-enforcing'
-    fips_mode: 'non-enforcing'
+    # Hardened: require Nessus's FIPS-validated module for database encryption and
+    # agent communication (SC-13). It does not change scanning.
+    fips_mode: 'enforcing'
     #endregion --- [ Settings: Security ] --------------------------------------------------- #
 
     #region ------ [ Settings: Scanning ] --------------------------------------------------- #
@@ -171,7 +189,8 @@ nessus_scanner_defaults:
     max_checks: '5'
     max_hosts: '256'
     max_simult_tcp_sessions: ''
-    qdb_mem_usage: 'low'
+    # Performance: Tenable's setting for a dedicated server; this host runs nothing else.
+    qdb_mem_usage: 'high'
     plugins_timeout: '320'
     reduce_connections_on_congestion: 'no'
     stop_scan_on_disconnect: 'no'
@@ -196,7 +215,8 @@ nessus_scanner_defaults:
     dumpfile_max_size: '512'
     dumpfile_rotation_time: '1'
     dumpfile_max_files: '100'
-    log_details: 'false'
+    # Hardened: scan logs name the user and scan behind each event (AU-3).
+    log_details: 'yes'
     log_whole_attack: 'no'
     logfile: '/opt/nessus/var/nessus/logs/nessusd.messages'
     logfile_rot: 'size'
@@ -228,7 +248,8 @@ nessus_scanner_defaults:
     remote_listen_port: ''
     child_node_listen_port: ''
     report_cleanup_threshold_days: '30'
-    report_crashes: 'yes'
+    # Hardened: nothing leaves the scanner but its own feed traffic (CM-7)...
+    report_crashes: 'no'
     scan_history_expiration_days: '0'
     orphaned_scan_cleanup_days: '30'
     old_user_files_cleanup_hours: '0'
@@ -247,9 +268,11 @@ nessus_scanner_defaults:
     sys_pread_timeout_msec: '5000'
     docker_pull_timeout_msec: '300000'
     windows_minidump: 'false'
-    send_telemetry: 'true'
+    # ...so neither crash reports nor usage telemetry go to Tenable...
+    send_telemetry: 'no'
     telemetry_period: '1440'
-    disable_guides: 'no'
+    # ...and the in-app guides, which need telemetry anyway, are off.
+    disable_guides: 'yes'
     scan_stats_cleanup_days: '30'
     scan_stats_cleanup_rows: '1000000'
     show_initial_scan_wizard: 'true'
@@ -262,7 +285,8 @@ nessus_scanner_defaults:
     allow_special_chars_in_username: 'false'
     event_days_to_keep: '30'
     backup_days_to_keep: '30'
-    hide_activation_code: 'false'
+    # Hardened: the activation code is a secret; the interface does not show it.
+    hide_activation_code: 'yes'
     plugin_detail_locale: 'en'
     plugin_detail_locale_enabled: 'false'
     plugin_detail_locale_current: ~  # state: a JSON record Nessus rewrites as locales download

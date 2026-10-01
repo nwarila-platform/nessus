@@ -33,7 +33,8 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   set, and imports it. The readiness wait then trusts *only* the declared CA and connects by the
   name the certificate carries, and the served leaf's fingerprint must equal the declared one.
 - **Every setting under configuration management.** All 160 settings Nessus 10.12.4 has are
-  declared in the repository, each at the product's own value unless a comment says otherwise.
+  declared in the repository, hardened to common STIG controls (TLS 1.3 only, FIPS enforcing,
+  lockout, 15-character complex passwords, idle timeout) and otherwise at the product's value.
   Every converge converges all of them and refuses a misspelled name, so any setting changes
   through a pull request. See the role README's
   [Settings](ansible/applications/nessus_scanner/README.md#settings).
