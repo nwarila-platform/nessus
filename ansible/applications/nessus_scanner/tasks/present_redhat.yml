@@ -50,6 +50,9 @@
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', '--queryformat', '%{VERSION}\n', "{{ nessus_scanner_running.package_name }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Begin: Read The Installed Package ] -------------------------------------- #
 
@@ -66,7 +69,11 @@
 
       ansible.builtin.stat:
         checksum_algorithm: 'sha256'
+        follow: false
+        get_attributes: false
         get_checksum: true
+        get_mime: false
+        get_selinux_context: false
         path: "{{ nessus_scanner_running.install_root }}/{{ item }}"
 
     #endregion --- [ Begin: Read The Scanner On The Data Volume ] ----------------------------- #
@@ -81,6 +88,9 @@
 
       ansible.builtin.command:
         argv: [ 'selinuxenabled' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -89,7 +99,12 @@
       register: '__nessus_scanner_root__'
 
       ansible.builtin.stat:
+        checksum_algorithm: 'sha1'
+        follow: false
+        get_attributes: false
         get_checksum: false
+        get_mime: false
+        get_selinux_context: false
         path: "{{ nessus_scanner_running.install_root }}"
 
     # ----------------------------------------------------------------------------------------- #
@@ -104,6 +119,9 @@
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "gpg-pubkey-{{ nessus_scanner_running.signing_key.fingerprint[-8:] | lower }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -115,6 +133,9 @@
 
       ansible.builtin.command:
         argv: [ 'systemctl', 'is-active', 'fapolicyd' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Begin: Read The Host's Policy ] ------------------------------------------ #
 
@@ -233,6 +254,7 @@
                        ~ ' with the package reinstalled over it.',
               'in use': 'The data volume holds the scanner this OS already runs.'}
              [__nessus_scanner_data_action__] }}
+        verbosity: 0
 
     #endregion --- [ Process: Report The Data Volume Decision ] ------------------------------- #
 
@@ -254,6 +276,9 @@
 
       ansible.builtin.command:
         argv: [ 'restorecon', '-v', "{{ nessus_scanner_running.install_root }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Process: Label The Install Root ] ---------------------------------------- #
 
@@ -267,11 +292,18 @@
         - __nessus_scanner_key_query__.rc != 0
 
       ansible.builtin.copy:
+        backup: false
+        decrypt: true
         dest: "{{ __temp_dir__.path }}/{{ nessus_scanner_running.signing_key.file }}"
+        follow: false
+        force: true
         group: 'root'
+        local_follow: true
         mode: '0600'
         owner: 'root'
+        remote_src: false
         src: "{{ nessus_scanner_running.signing_key.file }}"
+        unsafe_writes: false
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -350,7 +382,11 @@
 
       ansible.builtin.stat:
         checksum_algorithm: 'sha256'
+        follow: false
+        get_attributes: false
         get_checksum: true
+        get_mime: false
+        get_selinux_context: false
         path: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_rpm__ }}"
 
     # ----------------------------------------------------------------------------------------- #
@@ -383,12 +419,18 @@
         - __nessus_scanner_install_required__ | bool
 
       ansible.builtin.copy:
+        backup: false
+        decrypt: true
         dest: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
+        follow: false
         force: true
         group: 'root'
+        local_follow: true
         mode: '0600'
         owner: 'root'
+        remote_src: false
         src: "{{ __nessus_scanner_stage__.path }}/{{ __nessus_scanner_rpm__ }}"
+        unsafe_writes: false
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -403,6 +445,9 @@
       ansible.builtin.command:
         argv: [ 'rpm', '--checksig', '--verbose',
                 "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -434,9 +479,29 @@
 
       ansible.builtin.dnf:
         allow_downgrade: true
+        allowerasing: false
+        autoremove: false
+        bugfix: false
+        cacheonly: false
         disable_gpg_check: false
+        disable_plugin: []
+        disablerepo: []
+        download_only: false
+        enable_plugin: []
+        enablerepo: []
+        exclude: []
+        install_weak_deps: true
+        installroot: '/'
+        lock_timeout: 30
         name: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
+        security: false
+        skip_broken: false
+        sslverify: true
         state: 'present'
+        update_cache: false
+        update_only: false
+        use_backend: 'auto'
+        validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -450,7 +515,11 @@
 
       ansible.builtin.stat:
         checksum_algorithm: 'sha256'
+        follow: false
+        get_attributes: false
         get_checksum: true
+        get_mime: false
+        get_selinux_context: false
         path: "{{ nessus_scanner_running.install_root }}/{{ item }}"
 
     # ----------------------------------------------------------------------------------------- #
@@ -492,6 +561,9 @@
 
       ansible.builtin.command:
         argv: [ 'fapolicyd-cli', '--update' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -501,7 +573,12 @@
       when: not (ansible_check_mode and __nessus_scanner_install_required__ | bool)
 
       ansible.builtin.stat:
+        checksum_algorithm: 'sha1'
+        follow: false
+        get_attributes: false
         get_checksum: false
+        get_mime: false
+        get_selinux_context: false
         path: "{{ nessus_scanner_running.install_root }}/etc/nessus/fipsmodule.cnf"
 
     # ----------------------------------------------------------------------------------------- #
@@ -524,6 +601,9 @@
           - '-module'
           - "{{ nessus_scanner_running.install_root }}/lib/nessus/fips.so"
           - '-self_test_oninstall'
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Process: Adopt The Volume's Scanner, Or Install One ] -------------------- #
 
@@ -537,8 +617,12 @@
       when: not (ansible_check_mode and __nessus_scanner_install_required__ | bool)
 
       ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
         enabled: true
         name: "{{ nessus_scanner_running.service_name }}"
+        no_block: false
+        scope: 'system'
         state: 'started'
 
     # ----------------------------------------------------------------------------------------- #
@@ -556,6 +640,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--get', 'ssl_mode' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Process: Start The Service ] --------------------------------------------- #
 
@@ -575,6 +662,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--show' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -586,6 +676,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--list' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -629,6 +722,7 @@
         msg: >-
           Nessus has settings this role does not declare, so they keep the product's own values:
           {{ __undeclared__ | join(', ') }}. Declare them in the role defaults to manage them.
+        verbosity: 0
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -641,6 +735,7 @@
 
       ansible.builtin.debug:
         msg: "Would write: {{ __nessus_scanner_settings_differ__ | join(', ') }}."
+        verbosity: 0
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -653,6 +748,9 @@
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set',
                 "{{ item }}={{ __nessus_scanner_managed__[item] }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Process: Converge Every Setting ] ---------------------------------------- #
 
@@ -706,7 +804,11 @@
 
       ansible.builtin.stat:
         checksum_algorithm: 'sha256'
+        follow: false
+        get_attributes: false
         get_checksum: true
+        get_mime: false
+        get_selinux_context: false
         path: "{{ __nessus_scanner_stage__.path }}/nessus-https.p12"
 
     # ----------------------------------------------------------------------------------------- #
@@ -733,12 +835,18 @@
       when: not ansible_check_mode
 
       ansible.builtin.copy:
+        backup: false
+        decrypt: true
         dest: "{{ __temp_dir__.path }}/nessus-https.p12"
+        follow: false
         force: true
         group: 'root'
+        local_follow: true
         mode: '0600'
         owner: 'root'
+        remote_src: false
         src: "{{ __nessus_scanner_stage__.path }}/nessus-https.p12"
+        unsafe_writes: false
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -759,8 +867,10 @@
         argv: "{{ [__nessus_scanner_openssl__, 'pkcs12', '-in', __temp_dir__.path ~ '/nessus-https.p12',
                  '-passin', 'stdin', '-out', __nessus_scanner_pem__[item.part] ~ '.bag']
                  + item.args }}"
+        expand_argument_vars: true
         stdin: "{{ nessus_scanner_running.certificate.password | string | trim }}"
         stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -794,6 +904,9 @@
         argv: [ "{{ __nessus_scanner_openssl__ }}", "{{ item.command }}",
                 '-in', "{{ __nessus_scanner_pem__[item.part] }}.bag",
                 '-out', "{{ __nessus_scanner_pem__[item.part] }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -805,6 +918,9 @@
 
       ansible.builtin.command:
         argv: [ 'grep', '-c', '--', '-----BEGIN CERTIFICATE-----', "{{ __nessus_scanner_pem__.ca }}.bag" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -833,6 +949,9 @@
 
       ansible.builtin.command:
         argv: "{{ [__nessus_scanner_openssl__] + item.argv }}"
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -873,6 +992,9 @@
           - "--serverkey={{ __nessus_scanner_pem__.key }}"
           - "--servercert={{ __nessus_scanner_pem__.certificate }}"
           - "--cacert={{ __nessus_scanner_pem__.ca }}"
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -886,8 +1008,14 @@
       when: not ansible_check_mode
 
       ansible.builtin.file:
+        access_time_format: '%Y%m%d%H%M.%S'
+        follow: true
+        force: false
+        modification_time_format: '%Y%m%d%H%M.%S'
         path: "{{ item }}"
+        recurse: false
         state: 'absent'
+        unsafe_writes: false
 
     #endregion --- [ Process: Import The Declared HTTPS Certificate ] ------------------------- #
 
@@ -907,6 +1035,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'lsuser' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -924,6 +1055,7 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'adduser', "{{ nessus_scanner_running.administrator.username }}" ]
+        expand_argument_vars: true
         # One answer per line: the password, the password again, system administrator: yes, no
         # rules (the blank line), confirm. A literal block, because backslash escapes inside a
         # template are NOT unescaped by ansible-core 2.21 (measured 2026-09-30).
@@ -934,6 +1066,7 @@
 
           y
         stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -977,6 +1110,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fetch', '--check' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -993,6 +1129,9 @@
 
       ansible.builtin.command:
         argv: [ 'df', '-P', '-k', "{{ nessus_scanner_running.install_root }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1022,7 +1161,11 @@
 
         - name: 'PROCESS | Stop The Service For Registration'
           ansible.builtin.systemd_service:
+            daemon_reexec: false
+            daemon_reload: false
             name: "{{ nessus_scanner_running.service_name }}"
+            no_block: false
+            scope: 'system'
             state: 'stopped'
 
         # ------------------------------------------------------------------------------------- #
@@ -1040,6 +1183,9 @@
               - 'fetch'
               - '--register'
               - "{{ nessus_scanner_running.activation_code | string | trim }}"
+            expand_argument_vars: true
+            stdin_add_newline: true
+            strip_empty_ends: true
 
         # ------------------------------------------------------------------------------------- #
 
@@ -1059,7 +1205,11 @@
 
         - name: 'PROCESS | Start The Service After Registration'
           ansible.builtin.systemd_service:
+            daemon_reexec: false
+            daemon_reload: false
             name: "{{ nessus_scanner_running.service_name }}"
+            no_block: false
+            scope: 'system'
             state: 'started'
 
     #endregion --- [ Process: Register And Fetch The Plugins ] -------------------------------- #
@@ -1092,11 +1242,25 @@
       when: not ansible_check_mode
 
       ansible.builtin.uri:
+        body_format: 'raw'
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        decompress: true
+        follow_redirects: 'safe'
+        force: false
+        force_basic_auth: false
+        headers: {}
+        http_agent: 'ansible-httpget'
+        method: 'GET'
+        remote_src: false
         return_content: true
         status_code: [ 200, 503 ]
         timeout: 30
+        unredirected_headers: []
+        unsafe_writes: false
         url: "{{ __nessus_scanner_base_url__ }}/server/status"
+        use_gssapi: false
+        use_netrc: true
+        use_proxy: true
         validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
@@ -1111,6 +1275,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fetch', '--check' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1122,7 +1289,11 @@
         - __nessus_scanner_settled_registration__.rc | default(1) == 0
 
       ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
         name: "{{ nessus_scanner_running.service_name }}"
+        no_block: false
+        scope: 'system'
         state: 'restarted'
 
     # ----------------------------------------------------------------------------------------- #
@@ -1137,11 +1308,25 @@
       when: __nessus_scanner_unstuck__ is not skipped
 
       ansible.builtin.uri:
+        body_format: 'raw'
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        decompress: true
+        follow_redirects: 'safe'
+        force: false
+        force_basic_auth: false
+        headers: {}
+        http_agent: 'ansible-httpget'
+        method: 'GET'
+        remote_src: false
         return_content: true
         status_code: [ 200, 503 ]
         timeout: 30
+        unredirected_headers: []
+        unsafe_writes: false
         url: "{{ __nessus_scanner_base_url__ }}/server/status"
+        use_gssapi: false
+        use_netrc: true
+        use_proxy: true
         validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
@@ -1182,11 +1367,23 @@
           password: "{{ nessus_scanner_running.administrator.password | string | trim }}"
         body_format: 'json'
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        decompress: true
+        follow_redirects: 'safe'
+        force: false
+        force_basic_auth: false
+        headers: {}
+        http_agent: 'ansible-httpget'
         method: 'POST'
+        remote_src: false
         return_content: true
         status_code: [ 200, 401 ]
         timeout: 30
+        unredirected_headers: []
+        unsafe_writes: false
         url: "{{ __nessus_scanner_base_url__ }}/session"
+        use_gssapi: false
+        use_netrc: true
+        use_proxy: true
         validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
@@ -1202,11 +1399,13 @@
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'chpasswd', "{{ nessus_scanner_running.administrator.username }}" ]
+        expand_argument_vars: true
         # The new password and its confirmation, one per line (see the account creation above).
         stdin: |-
           {{ nessus_scanner_running.administrator.password | string | trim }}
           {{ nessus_scanner_running.administrator.password | string | trim }}
         stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1237,11 +1436,23 @@
           password: "{{ nessus_scanner_running.administrator.password | string | trim }}"
         body_format: 'json'
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        decompress: true
+        follow_redirects: 'safe'
+        force: false
+        force_basic_auth: false
+        headers: {}
+        http_agent: 'ansible-httpget'
         method: 'POST'
+        remote_src: false
         return_content: true
         status_code: [ 200, 401 ]
         timeout: 30
+        unredirected_headers: []
+        unsafe_writes: false
         url: "{{ __nessus_scanner_base_url__ }}/session"
+        use_gssapi: false
+        use_netrc: true
+        use_proxy: true
         validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
@@ -1305,6 +1516,9 @@
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', '--queryformat', '%{VERSION}', "{{ nessus_scanner_running.package_name }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1317,6 +1531,9 @@
 
       ansible.builtin.command:
         argv: [ 'systemctl', "{{ item }}", "{{ nessus_scanner_running.service_name }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1328,6 +1545,9 @@
 
       ansible.builtin.command:
         argv: [ "{{ nessus_scanner_running.cli_path }}", 'fetch', '--check' ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1347,6 +1567,7 @@
           -servername localhost </dev/null 2>/dev/null
           | {{ nessus_scanner_running.openssl_path }} x509 -noout -fingerprint -sha256
         executable: '/bin/bash'
+        stdin_add_newline: true
 
     #endregion --- [ End: Re-Read The Scanner ] ----------------------------------------------- #
 
@@ -1397,13 +1618,26 @@
       when: __token__ | length > 0
 
       ansible.builtin.uri:
+        body_format: 'raw'
         ca_path: "{{ __nessus_scanner_pem__.ca }}"
+        decompress: true
+        follow_redirects: 'safe'
+        force: false
+        force_basic_auth: false
         headers:
           X-Cookie: "token={{ __token__ }}"
+        http_agent: 'ansible-httpget'
         method: 'DELETE'
+        remote_src: false
+        return_content: false
         status_code: [ 200 ]
         timeout: 30
+        unredirected_headers: []
+        unsafe_writes: false
         url: "https://localhost:{{ nessus_scanner_running.listener.port | int }}/session"
+        use_gssapi: false
+        use_netrc: true
+        use_proxy: true
         validate_certs: true
 
     #endregion --- [ Always: Sign Out ] ------------------------------------------------------- #
@@ -1418,8 +1652,14 @@
       when: not ansible_check_mode
 
       ansible.builtin.file:
+        access_time_format: '%Y%m%d%H%M.%S'
+        follow: true
+        force: false
+        modification_time_format: '%Y%m%d%H%M.%S'
         path: "{{ item }}"
+        recurse: false
         state: 'absent'
+        unsafe_writes: false
 
     #endregion --- [ Always: Remove The Decoded Private Key ] --------------------------------- #
 
@@ -1435,8 +1675,14 @@
       when: __nessus_scanner_stage__.path is defined
 
       ansible.builtin.file:
+        access_time_format: '%Y%m%d%H%M.%S'
+        follow: true
+        force: false
+        modification_time_format: '%Y%m%d%H%M.%S'
         path: "{{ __nessus_scanner_stage__.path }}"
+        recurse: false
         state: 'absent'
+        unsafe_writes: false
 
     #endregion --- [ Always: Remove The Controller Staging Directory ] ------------------------ #
 

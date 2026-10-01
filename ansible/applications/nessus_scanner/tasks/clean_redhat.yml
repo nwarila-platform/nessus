@@ -17,12 +17,20 @@
   register: '__nessus_scanner_superseded__'
 
   ansible.builtin.find:
+    age_stamp: 'mtime'
+    checksum_algorithm: 'sha1'
+    exact_mode: true
     file_type: 'file'
+    follow: false
+    get_checksum: false
+    hidden: false
     paths:
       - "{{ nessus_scanner_running.served_certificate_path | dirname }}"
       - "{{ nessus_scanner_running.install_root }}/var/nessus/CA"
     patterns: [ '*.pem.[0-9]*' ]
+    read_whole_file: false
     recurse: false
+    use_regex: false
 
 # --------------------------------------------------------------------------------------------- #
 
@@ -30,7 +38,13 @@
   loop: "{{ __nessus_scanner_superseded__.files | map(attribute='path') | list }}"
 
   ansible.builtin.file:
+    access_time_format: '%Y%m%d%H%M.%S'
+    follow: true
+    force: false
+    modification_time_format: '%Y%m%d%H%M.%S'
     path: "{{ item }}"
+    recurse: false
     state: 'absent'
+    unsafe_writes: false
 
 #endregion --- [ Process: Remove The Superseded Certificate Material ] ------------------------ #

@@ -17,5 +17,9 @@
   listen: 'nessus-restart-required'
 
   ansible.builtin.systemd_service:
+    daemon_reexec: false
+    daemon_reload: false
     name: "{{ nessus_scanner_running.service_name }}"
+    no_block: false
+    scope: 'system'
     state: 'restarted'

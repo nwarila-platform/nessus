@@ -38,6 +38,9 @@
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     #endregion --- [ Begin: Read The Installed Package ] -------------------------------------- #
 
@@ -48,10 +51,18 @@
       register: '__nessus_scanner_remains__'
 
       ansible.builtin.find:
+        age_stamp: 'mtime'
+        checksum_algorithm: 'sha1'
+        exact_mode: true
         file_type: 'any'
+        follow: false
+        get_checksum: false
         hidden: true
         paths: [ "{{ nessus_scanner_running.install_root }}" ]
+        patterns: []
+        read_whole_file: false
         recurse: false
+        use_regex: false
 
     #endregion --- [ Begin: Find Everything Under The Install Root ] -------------------------- #
 
@@ -71,17 +82,42 @@
       when: __nessus_scanner_package__.rc == 0
 
       ansible.builtin.systemd_service:
+        daemon_reexec: false
+        daemon_reload: false
         enabled: false
         name: "{{ nessus_scanner_running.service_name }}"
+        no_block: false
+        scope: 'system'
         state: 'stopped'
 
     # ----------------------------------------------------------------------------------------- #
 
     - name: 'PROCESS | Remove The Package'
       ansible.builtin.dnf:
+        allow_downgrade: false
+        allowerasing: false
         autoremove: false
+        bugfix: false
+        cacheonly: false
+        disable_gpg_check: false
+        disable_plugin: []
+        disablerepo: []
+        download_only: false
+        enable_plugin: []
+        enablerepo: []
+        exclude: []
+        install_weak_deps: true
+        installroot: '/'
+        lock_timeout: 30
         name: "{{ nessus_scanner_running.package_name }}"
+        security: false
+        skip_broken: false
+        sslverify: true
         state: 'absent'
+        update_cache: false
+        update_only: false
+        use_backend: 'auto'
+        validate_certs: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -91,8 +127,14 @@
       loop: "{{ __nessus_scanner_remains__.files | map(attribute='path') | list }}"
 
       ansible.builtin.file:
+        access_time_format: '%Y%m%d%H%M.%S'
+        follow: true
+        force: false
+        modification_time_format: '%Y%m%d%H%M.%S'
         path: "{{ item }}"
+        recurse: false
         state: 'absent'
+        unsafe_writes: false
 
     #endregion --- [ Process: Stop And Remove The Product ] ----------------------------------- #
 
@@ -102,6 +144,7 @@
       ansible.builtin.rpm_key:
         key: "{{ nessus_scanner_running.signing_key.fingerprint[-8:] }}"
         state: 'absent'
+        validate_certs: true
 
     #endregion --- [ Process: Withdraw The Vendor Signing Key ] ------------------------------- #
 
@@ -126,6 +169,9 @@
 
       ansible.builtin.command:
         argv: [ 'rpm', '-q', "{{ nessus_scanner_running.package_name }}" ]
+        expand_argument_vars: true
+        stdin_add_newline: true
+        strip_empty_ends: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -135,10 +181,18 @@
       when: not ansible_check_mode
 
       ansible.builtin.find:
+        age_stamp: 'mtime'
+        checksum_algorithm: 'sha1'
+        exact_mode: true
         file_type: 'any'
+        follow: false
+        get_checksum: false
         hidden: true
         paths: [ "{{ nessus_scanner_running.install_root }}" ]
+        patterns: []
+        read_whole_file: false
         recurse: false
+        use_regex: false
 
     #endregion --- [ End: Re-Read The Machine ] ----------------------------------------------- #
 
