@@ -21,10 +21,11 @@
 nessus_scanner_defaults:
 
   #region ------ [ Installer ] --------------------------------------------------------------- #
-  # The RPM, fetched from S3 by the CONTROLLER and handed to the guest, which verifies the pinned
-  # digest immediately before dnf installs it. The key follows the application repository's
-  # <Publisher>/<Application>/<version>/<file> layout, and the literal token <version> is replaced
-  # with installer.version at fetch, so a version bump is one value and one digest.
+  # The RPM, fetched from S3 by the CONTROLLER, which verifies the pinned digest before it hands
+  # the guest a copy; the guest checks the vendor's signature on it. The key follows the
+  # application repository's <Publisher>/<Application>/<version>/<file> layout, and the literal
+  # token <version> is replaced with installer.version at fetch, so a version bump is one value
+  # and one digest.
   installer:
     bucket: ''
     key: 'Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm'
@@ -52,7 +53,7 @@ nessus_scanner_defaults:
 
   #region ------ [ Administrator ] ----------------------------------------------------------- #
   # Nessus Professional and Essentials hold exactly ONE account, so this is the account, not one
-  # of several: a converge that finds a different one refuses rather than guess which is meant.
+  # of several: the product refuses a second, and a converge that meets one fails naming that.
   # The password is supplied by the playbook; leading and trailing whitespace is not part of it,
   # because the product's command line reads it a line at a time.
   administrator:
@@ -81,8 +82,9 @@ nessus_scanner_defaults:
   # EVERY setting this Nessus has (10.12.4: the 157 in its own catalogue, 'nessuscli fix --show',
   # and 5 it stores at install without cataloguing), each at the product's own value unless a
   # comment says why not. The role converges all of them on every converge: it reads the
-  # catalogue and the store once, writes only what differs, and reads the result back. A name
-  # this Nessus does not have is refused, because 'fix --set' would store it silently.
+  # catalogue and the store once and writes only what differs, and 'fix --set' refuses a value
+  # outside a setting's range. A name this Nessus does not have is refused, because 'fix --set'
+  # would store it silently.
   #   * To change one, set it by name in the playbook's nessus_scanner.settings.
   #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state
   #     Nessus rewrites itself, so pinning the lab's values would be wrong here.

@@ -198,8 +198,6 @@
     __nessus_scanner_certificate__: >-
       {{ dict(__nessus_scanner_certificate_read__.results | map(attribute='item.check')
               | zip(__nessus_scanner_certificate_read__.results)) }}
-    __nessus_scanner_account_names__: >-
-      {{ __nessus_scanner_accounts__.stdout_lines | map('trim') | reject('equalto', '') | list }}
 
   # Begin The 'Process' Block
   block:
@@ -291,10 +289,12 @@
     #endregion --- [ Process: Trust The Vendor Signing Key ] ---------------------------------- #
 
     #region ------ [ Process: Adopt The Volume's Scanner, Or Install One ] -------------------- #
-    # The package is installed only when the installed version differs from the pin. The digest
-    # proves the bytes are the ones pinned; the signature proves the vendor built them. Both are
-    # checked on the guest copy -- the one dnf installs -- and dnf checks the signature again
-    # under the host's own policy. allow_downgrade because the pin is authoritative both ways.
+    # The package is installed only when the installed version differs from the pin. The
+    # digest, checked on the controller, proves the bytes are the ones pinned; the copy module
+    # checks its own transfer to the guest. The signature, checked on the guest copy dnf
+    # installs, must be by the pinned vendor key: any key the host trusts would satisfy dnf
+    # (measured 2026-10-01 with a distribution-signed RPM). allow_downgrade because the pin is
+    # authoritative both ways.
     #
     # The controller fetches the RPM with its own AWS credentials, so the guest is never given
     # any. The module probes the BUCKET before the object, and that probe needs a bucket-level
@@ -392,38 +392,6 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    - name: 'PROCESS | Read The Guest Copy Of The Installer'
-      register: '__nessus_scanner_installer_guest__'
-      when:
-        - not ansible_check_mode
-        - __nessus_scanner_install_required__ | bool
-
-      ansible.builtin.stat:
-        checksum_algorithm: 'sha256'
-        get_checksum: true
-        path: "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}"
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Require The Guest Copy Of The Installer To Match Its Pin'
-      when:
-        - not ansible_check_mode
-        - __nessus_scanner_install_required__ | bool
-
-      ansible.builtin.assert:
-        that:
-          - __nessus_scanner_installer_guest__.stat.exists
-          - __nessus_scanner_installer_guest__.stat.checksum
-            == nessus_scanner_running.installer.sha256
-        fail_msg: >-
-          The installer copied to the guest has sha256
-          {{ __nessus_scanner_installer_guest__.stat.checksum | default('(missing)') }},
-          but the playbook pins {{ nessus_scanner_running.installer.sha256 }}.
-          Refusing to use it.
-        quiet: true
-
-    # ----------------------------------------------------------------------------------------- #
-
     - name: 'PROCESS | Read The Installer Signature'
       changed_when: false
       failed_when: false
@@ -433,11 +401,14 @@
         - __nessus_scanner_install_required__ | bool
 
       ansible.builtin.command:
-        argv: [ 'rpm', '--checksig', "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}" ]
+        argv: [ 'rpm', '--checksig', '--verbose',
+                "{{ __temp_dir__.path }}/{{ __nessus_scanner_rpm__ }}" ]
 
     # ----------------------------------------------------------------------------------------- #
 
     - name: 'PROCESS | Require The Vendor Signature'
+      vars:
+        __key_id__: "{{ nessus_scanner_running.signing_key.fingerprint[-8:] | lower }}"
       when:
         - not ansible_check_mode
         - __nessus_scanner_install_required__ | bool
@@ -445,9 +416,11 @@
       ansible.builtin.assert:
         that:
           - __nessus_scanner_signature__.rc == 0
-          - __nessus_scanner_signature__.stdout is search('signatures OK')
+          - >-
+            __nessus_scanner_signature__.stdout is search('key ID ' ~ __key_id__ ~ ': OK')
         fail_msg: >-
-          rpm --checksig did not report a good vendor signature on {{ __nessus_scanner_rpm__ }}:
+          rpm --checksig did not report a good signature by the vendor key
+          (key ID {{ __key_id__ }}) on {{ __nessus_scanner_rpm__ }}:
           {{ __nessus_scanner_signature__.stdout | default('') }}
           {{ __nessus_scanner_signature__.stderr | default('') }}
         quiet: true
@@ -574,7 +547,6 @@
       changed_when: false
       check_mode: false
       delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
-      failed_when: false
       register: '__nessus_scanner_store_ready__'
       retries: "{{ nessus_scanner_running.timeouts.settings_attempts | int }}"
       until:
@@ -585,18 +557,6 @@
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--get', 'ssl_mode' ]
 
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Require The Settings Store'
-      when: not (ansible_check_mode and __nessus_scanner_install_required__ | bool)
-
-      ansible.builtin.assert:
-        that: __nessus_scanner_store_ready__.stdout is search('The current value for')
-        fail_msg: >-
-          The Nessus settings store never answered:
-          {{ __nessus_scanner_store_ready__.stdout | default('') }}
-        quiet: true
-
     #endregion --- [ Process: Start The Service ] --------------------------------------------- #
 
     #region ------ [ Process: Converge Every Setting ] ---------------------------------------- #
@@ -604,7 +564,8 @@
     # product's own value, the playbook overrides any of them by name, and ~ leaves one to
     # Nessus. 'fix --set' stores ANY name (measured: an unknown name is stored as readily as a
     # real one), so a declared name this Nessus does not have is refused instead of being kept
-    # silently. Read once; write only what differs; read back what was written.
+    # silently. Read once and write only what differs; 'fix --set' itself refuses a value outside
+    # the setting's range (measured 2026-10-01).
 
     - name: 'PROCESS | Read The Settings Catalogue'
       changed_when: false
@@ -693,52 +654,16 @@
         argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--set',
                 "{{ item }}={{ __nessus_scanner_managed__[item] }}" ]
 
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Read Back Each Setting Written'
-      changed_when: false
-      loop: "{{ __nessus_scanner_settings_differ__ }}"
-      register: '__nessus_scanner_settings_written__'
-      when: not ansible_check_mode
-
-      ansible.builtin.command:
-        argv: [ "{{ __nessus_scanner_cli__ }}", 'fix', '--get', "{{ item }}" ]
-
-    # ----------------------------------------------------------------------------------------- #
-
-    # The product answers "The current value for '<name>' is '<value>'.", so the value is what is
-    # left between that fixed prefix and the closing quote. Unset, it answers "Could not retrieve
-    # value", which never equals a declared value.
-    - name: 'PROCESS | Require Each Written Setting To Hold Its Declared Value'
-      loop: "{{ __nessus_scanner_settings_written__.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item }}"
-      vars:
-        __read__: >-
-          {{ item.stdout | regex_replace("^The current value for '[^']*' is '", '')
-             | regex_replace("'[.]$", '') }}
-        __want__: "{{ __nessus_scanner_managed__[item.item] | string }}"
-      when: not ansible_check_mode
-
-      ansible.builtin.assert:
-        that: >-
-          ({'true': 'yes', 'false': 'no'}[__read__ | lower] | default(__read__))
-          == ({'true': 'yes', 'false': 'no'}[__want__ | lower] | default(__want__))
-        fail_msg: >-
-          Nessus did not keep '{{ __want__ }}' for {{ item.item }}: it reads back
-          '{{ __read__ }}'. The value may be outside what the setting accepts; see
-          'nessuscli fix --show {{ item.item }}' for its options.
-        quiet: true
-
     #endregion --- [ Process: Converge Every Setting ] ---------------------------------------- #
 
     #region ------ [ Process: Import The Declared HTTPS Certificate ] ------------------------- #
     # Fetched, checked and copied exactly as the installer is. The bundle is decoded on the guest
     # by the system OpenSSL, the FIPS-validated module, with its password on stdin so it never
-    # appears in a process list. The key, the certificate and the CA are checked as a set -- the
-    # key opens the certificate, the CA signed it, it is in date, and it names this host and
-    # localhost -- BEFORE Nessus is told about any of it. Imported only when what Nessus serves
-    # differs: each import leaves a timestamped backup of the previous material (measured
+    # appears in a process list. import-certs itself refuses a key that does not open the
+    # certificate, a CA that did not sign it, or an expired certificate (measured 2026-10-01). It
+    # accepts the rest, so BEFORE Nessus is told about any of it the bundle must hold exactly one
+    # CA, be in date for a day, and name this host and localhost. Imported only when what Nessus
+    # serves differs: each import leaves a timestamped backup of the previous material (measured
     # 2026-09-30), so a converge that re-imported would report a change and accumulate files.
 
     - name: 'PROCESS | Fetch The Certificate Bundle To The Controller'
@@ -817,36 +742,9 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    - name: 'PROCESS | Read The Guest Copy Of The Certificate Bundle'
-      register: '__nessus_scanner_certificate_guest__'
-      when: not ansible_check_mode
-
-      ansible.builtin.stat:
-        checksum_algorithm: 'sha256'
-        get_checksum: true
-        path: "{{ __temp_dir__.path }}/nessus-https.p12"
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Require The Guest Copy Of The Certificate Bundle To Match Its Pin'
-      when: not ansible_check_mode
-
-      ansible.builtin.assert:
-        that:
-          - __nessus_scanner_certificate_guest__.stat.exists
-          - __nessus_scanner_certificate_guest__.stat.checksum
-            == nessus_scanner_running.certificate.sha256
-        fail_msg: >-
-          The certificate bundle copied to the guest has sha256
-          {{ __nessus_scanner_certificate_guest__.stat.checksum | default('(missing)') }},
-          but the playbook pins {{ nessus_scanner_running.certificate.sha256 }}.
-          Refusing to use it.
-        quiet: true
-
-    # ----------------------------------------------------------------------------------------- #
-
     - name: 'PROCESS | Decode The Bundle'
       changed_when: false
+      failed_when: false
       loop:
         - { part: 'key', args: [ '-nocerts', '-nodes' ] }
         - { part: 'certificate', args: [ '-nokeys', '-clcerts' ] }
@@ -863,6 +761,21 @@
                  + item.args }}"
         stdin: "{{ nessus_scanner_running.certificate.password | string | trim }}"
         stdin_add_newline: true
+
+    # ----------------------------------------------------------------------------------------- #
+
+    - name: 'PROCESS | Require The Bundle To Decode'
+      when: not ansible_check_mode
+
+      ansible.builtin.assert:
+        that: __nessus_scanner_decoded__.results | rejectattr('rc', 'eq', 0) | list | length == 0
+        fail_msg: >-
+          OpenSSL could not decode the certificate bundle:
+          {{ __nessus_scanner_decoded__.results | map(attribute='stderr') | map('trim') | unique
+             | join(' / ') }}. A MAC error means the declared password does not open it; on a
+          FIPS host, an unsupported algorithm means a legacy PKCS#12 -- re-mint it with
+          scripts/mint-nessus-https.sh.
+        quiet: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -895,15 +808,10 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    - name: 'PROCESS | Read The Certificate Against Its Key, Its CA, The Clock And Its Names'
+    - name: 'PROCESS | Read The Certificate Against The Clock And Its Names'
       changed_when: false
       failed_when: false
       loop:
-        - { check: 'chain', argv: [ 'verify', '-CAfile', "{{ __nessus_scanner_pem__.ca }}",
-                                    "{{ __nessus_scanner_pem__.certificate }}" ] }
-        - { check: 'certificate-public-key', argv: [ 'x509', '-in', "{{ __nessus_scanner_pem__.certificate }}",
-                                                     '-noout', '-pubkey' ] }
-        - { check: 'key-public-key', argv: [ 'pkey', '-in', "{{ __nessus_scanner_pem__.key }}", '-pubout' ] }
         - { check: 'in-date', argv: [ 'x509', '-in', "{{ __nessus_scanner_pem__.certificate }}",
                                       '-noout', '-checkend', '86400' ] }
         - { check: 'names-localhost', argv: [ 'x509', '-in', "{{ __nessus_scanner_pem__.certificate }}",
@@ -933,25 +841,13 @@
 
       ansible.builtin.assert:
         that:
-          - __nessus_scanner_decoded__.results | map(attribute='rc') | select('ne', 0) | list | length == 0
           - __nessus_scanner_ca_count__.stdout | default('0') | trim == '1'
-          - __nessus_scanner_certificate__['chain'].rc == 0
-          - __nessus_scanner_certificate__['certificate-public-key'].rc == 0
-          - __nessus_scanner_certificate__['certificate-public-key'].stdout
-            == __nessus_scanner_certificate__['key-public-key'].stdout
           - __nessus_scanner_certificate__['in-date'].rc == 0
           - __nessus_scanner_certificate__['names-localhost'].stdout is search('does match')
           - __nessus_scanner_certificate__['names-host'].stdout is search('does match')
         fail_msg: >-
-          The certificate bundle is not usable as declared. Decoded:
-          {{ __nessus_scanner_decoded__.results | map(attribute='rc') | list }} (a non-zero
-          here on a FIPS host means a legacy PKCS#12 -- re-mint with
-          scripts/mint-nessus-https.sh); CA certificates in the bundle:
+          The certificate bundle is not usable as declared. CA certificates in the bundle:
           {{ __nessus_scanner_ca_count__.stdout | default('?') }} (exactly 1 is required);
-          chain: {{ __nessus_scanner_certificate__['chain'].stdout | default('') }}
-          {{ __nessus_scanner_certificate__['chain'].stderr | default('') }};
-          key matches certificate: {{ __nessus_scanner_certificate__['certificate-public-key'].stdout
-          == __nessus_scanner_certificate__['key-public-key'].stdout }};
           in date for a day: {{ __nessus_scanner_certificate__['in-date'].rc == 0 }};
           {{ __nessus_scanner_certificate__['names-localhost'].stdout | default('') }};
           {{ __nessus_scanner_certificate__['names-host'].stdout | default('') }}.
@@ -962,7 +858,6 @@
     - name: 'PROCESS | Import The Certificate Into Nessus'
       changed_when: true
       notify: 'nessus-restart-required'
-      register: '__nessus_scanner_imported__'
       when:
         - not ansible_check_mode
         - >-
@@ -978,17 +873,6 @@
           - "--serverkey={{ __nessus_scanner_pem__.key }}"
           - "--servercert={{ __nessus_scanner_pem__.certificate }}"
           - "--cacert={{ __nessus_scanner_pem__.ca }}"
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Require Nessus To Accept The Certificate'
-      when: __nessus_scanner_imported__ is not skipped
-
-      ansible.builtin.assert:
-        that: __nessus_scanner_imported__.stdout is search('Successfully imported')
-        fail_msg: >-
-          nessuscli import-certs did not report success: {{ __nessus_scanner_imported__.stdout }}
-        quiet: true
 
     # ----------------------------------------------------------------------------------------- #
 
@@ -1026,31 +910,17 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    # Professional and Essentials hold one account, so one the playbook did not declare is not
-    # this role's to replace or to guess about.
-    - name: 'PROCESS | Require No Account The Playbook Did Not Declare'
-      when: not (ansible_check_mode and __nessus_scanner_install_required__ | bool)
-
-      ansible.builtin.assert:
-        that: >-
-          __nessus_scanner_account_names__
-          | reject('equalto', nessus_scanner_running.administrator.username) | list | length == 0
-        fail_msg: >-
-          Nessus holds {{ __nessus_scanner_account_names__ | join(', ') }}, but the playbook
-          declares only '{{ nessus_scanner_running.administrator.username }}'. Professional and
-          Essentials hold one account; remove the other with 'nessuscli rmuser' or declare it.
-        quiet: true
-
-    # ----------------------------------------------------------------------------------------- #
-
     - name: 'PROCESS | Create The Administrator'
-      changed_when: true
+      changed_when: __nessus_scanner_created__.rc == 0
+      failed_when: false
       no_log: true
       notify: 'nessus-restart-required'
       register: '__nessus_scanner_created__'
       when:
         - not ansible_check_mode
-        - nessus_scanner_running.administrator.username not in __nessus_scanner_account_names__
+        - >-
+          nessus_scanner_running.administrator.username
+          not in __nessus_scanner_accounts__.stdout_lines | map('trim') | list
 
       ansible.builtin.command:
         argv: [ "{{ __nessus_scanner_cli__ }}", 'adduser', "{{ nessus_scanner_running.administrator.username }}" ]
@@ -1071,10 +941,13 @@
       when: __nessus_scanner_created__ is not skipped
 
       ansible.builtin.assert:
-        that: __nessus_scanner_created__.stdout | default('') is search('User added')
+        that:
+          - __nessus_scanner_created__.rc == 0
+          - __nessus_scanner_created__.stdout is search('User added')
         fail_msg: >-
-          nessuscli adduser did not report 'User added'
-          (rc={{ __nessus_scanner_created__.rc | default('?') }}).
+          nessuscli adduser refused '{{ nessus_scanner_running.administrator.username }}'
+          (rc={{ __nessus_scanner_created__.rc }}):
+          {{ __nessus_scanner_created__.stdout_lines[-1:] | join }}
         quiet: true
 
     #endregion --- [ Process: Converge The One Administrator Account ] ------------------------ #
@@ -1319,7 +1192,8 @@
     # ----------------------------------------------------------------------------------------- #
 
     - name: 'PROCESS | Reset The Administrator Password'
-      changed_when: true
+      changed_when: __nessus_scanner_reset__.rc == 0
+      failed_when: false
       no_log: true
       register: '__nessus_scanner_reset__'
       when:
@@ -1340,10 +1214,13 @@
       when: __nessus_scanner_reset__ is not skipped
 
       ansible.builtin.assert:
-        that: __nessus_scanner_reset__.stdout | default('') is search('Password changed')
+        that:
+          - __nessus_scanner_reset__.rc == 0
+          - __nessus_scanner_reset__.stdout is search('Password changed')
         fail_msg: >-
-          nessuscli chpasswd did not report 'Password changed'
-          (rc={{ __nessus_scanner_reset__.rc | default('?') }}).
+          nessuscli chpasswd refused the declared password
+          (rc={{ __nessus_scanner_reset__.rc }}):
+          {{ __nessus_scanner_reset__.stdout_lines[-1:] | join }}
         quiet: true
 
     # ----------------------------------------------------------------------------------------- #
@@ -1458,6 +1335,7 @@
     # certificate, fingerprinted.
     - name: 'END | Read The Certificate The Listener Serves'
       changed_when: false
+      failed_when: false
       register: '__nessus_scanner_served__'
       when: not ansible_check_mode
 

@@ -4,8 +4,8 @@ Installs Tenable Nessus at a pinned version on a STIG-hardened RHEL 8 host and b
 registered scanner serving HTTPS with a certificate the deployment owns. In one converge it:
 
 1. trusts Tenable's RPM signing key, refused unless its fingerprint is the pinned one;
-2. installs the pinned RPM from a copy verified against its SHA-256 **and** the vendor signature,
-   on the guest, immediately before `dnf` installs it;
+2. installs the pinned RPM: its SHA-256 is verified on the controller, which hands the guest a
+   copy, and the guest requires the signature of the pinned vendor key before `dnf` installs it;
 3. starts the service and converges **every** Nessus setting to its declaration (below);
 4. decodes the declared PKCS#12 bundle with the system's FIPS-validated OpenSSL, checks the key,
    certificate and CA as a set, and imports them into Nessus when what it serves differs;
@@ -72,7 +72,6 @@ On every converge the role:
   silently;
 - writes only the settings whose value differs, treating `yes`/`no` and `true`/`false` as equal
   because Nessus reports booleans both ways;
-- reads back each setting it wrote and requires it to hold its declared value;
 - names any setting Nessus has that the declaration lacks, which is how a version bump shows up.
 
 `~` leaves a setting to Nessus. Six are left that way by default: five that Nessus computes from
@@ -126,11 +125,12 @@ host, `localhost` and `127.0.0.1`, and destroys the CA key.
 
 The role never trusts the certificate on its word:
 
-- the bundle's SHA-256 is pinned, and checked on the controller and again on the guest;
+- the bundle's SHA-256 is pinned and checked on the controller, which hands the guest a copy;
 - it is decoded on the guest by `/usr/bin/openssl`, the FIPS-validated module, so a bundle this
   host's crypto policy would refuse fails by name rather than half-installing;
-- before import the key must open the certificate, the CA must verify it, it must be in date for
-  another day, and it must name both this host and `localhost`;
+- `nessuscli import-certs` itself refuses a key that does not open the certificate, a CA that
+  did not sign it, or an expired certificate; before import the role also requires exactly one CA,
+  a certificate in date for another day, and both this host's name and `localhost`;
 - the readiness wait trusts **only** the declared CA and connects to `https://localhost:<port>`,
   so it cannot pass against Nessus's self-generated certificate, another CA or a name mismatch;
 - finally the leaf certificate the listener serves in a live handshake must carry the declared
@@ -171,5 +171,5 @@ role names an account, bucket or secret; the playbook supplies them.
 ## Licence model
 
 Nessus Professional and Essentials hold exactly one account, so `administrator` is *the* account.
-A converge that finds a different one refuses rather than guessing which is meant. Every account
-write is judged by what the product prints as well as by its exit status.
+The product refuses a second account, and a converge that meets that refusal fails naming it.
+Every account write is judged by what the product prints as well as by its exit status.

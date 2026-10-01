@@ -215,9 +215,9 @@
             port: "{{ nessus_listener_port }}"
 
           # What is installed, stated where a reader can see it. The digest is Tenable's published
-          # SHA-256 for this build, verified on the GUEST immediately before dnf installs it; the
-          # application repository carries the object at the layout the role composes from the
-          # version. A version bump is these two values and dependencies/aws/artifacts.yml.
+          # SHA-256 for this build, verified on the CONTROLLER before the guest is given a copy;
+          # the application repository carries the object at the layout the role composes from
+          # the version. A version bump is these two values and dependencies/aws/artifacts.yml.
           installer:
             bucket: "{{ aws_account_id }}-apprepo"
             version: '10.12.4'
