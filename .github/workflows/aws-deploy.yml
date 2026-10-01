@@ -435,10 +435,11 @@ jobs:
           role-session-name: aws-deploy-${{ github.run_id }}-proofs
           role-duration-seconds: 3600
 
-      # Idempotency gate: a settled scanner reports NO change on a second converge. Everything the
-      # role writes -- the package, settings, firewall rule, certificate, registration and account
-      # -- is read first and written only on difference, so any change here is drift the role
-      # failed to settle, or a write it cannot judge.
+      # Idempotency gate: a settled host reports NO change on a second converge. Everything the
+      # scanner play writes -- the role's package, settings, certificate, registration and account,
+      # and the play's nftables ruleset and services -- is read first and written only on
+      # difference. The gate judges the host's whole recap, the host roles included, so any change
+      # here is drift the converge failed to settle, or a write it cannot judge.
       - name: Prove a second converge changes nothing
         if: ${{ !inputs.skip_products }}
         timeout-minutes: 30
