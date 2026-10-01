@@ -66,7 +66,9 @@
 
     - name: 'BEGIN | Read The Identity Of The Scanner The Volume Holds'
       check_mode: false
-      loop: [ 'var/nessus/uuid', 'var/nessus/master.key' ]
+      loop:
+        - 'var/nessus/uuid'
+        - 'var/nessus/master.key'
       loop_control:
         label: "{{ item }}"
       register: '__nessus_scanner_identity_before__'
@@ -96,21 +98,6 @@
         expand_argument_vars: true
         stdin_add_newline: true
         strip_empty_ends: true
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'BEGIN | Read Whether The Install Root Exists'
-      check_mode: false
-      register: '__nessus_scanner_root__'
-
-      ansible.builtin.stat:
-        checksum_algorithm: 'sha1'
-        follow: false
-        get_attributes: false
-        get_checksum: false
-        get_mime: false
-        get_selinux_context: false
-        path: "{{ nessus_scanner_running.install_root }}"
 
     # ----------------------------------------------------------------------------------------- #
     # RPM records an imported key as gpg-pubkey-<last 8 hex of the fingerprint>; asking for that
@@ -235,7 +222,7 @@
 
     #region ------ [ Process: Report The Data Volume Decision ] ------------------------------- #
 
-    - name: 'PROCESS | Report Whether The Volume Is Adopted Or Installed'
+    - name: 'PROCESS | Report The Data Volume Decision'
       changed_when: false
 
       ansible.builtin.debug:
@@ -250,11 +237,12 @@
     #endregion --- [ Process: Report The Data Volume Decision ] ------------------------------- #
 
     #region ------ [ Process: Label The Install Root ] ---------------------------------------- #
-    # The install root is normally its own data volume's mount point, whose new filesystem has no
-    # SELinux label. restorecon labels THAT DIRECTORY, not the tree: the package labels its own
-    # files, and Nessus renames downloads across directories whose policy labels differ, so a
-    # recursive relabel finds drift after every plugin update and never settles (measured
-    # 2026-09-30). Nessus runs unconfined, so those labels change nothing it can reach.
+    # The install root is its own data volume, mounted by linux_disk_manager before this role
+    # runs, and a new filesystem has no SELinux label. restorecon labels THAT DIRECTORY, not the
+    # tree: the package labels its own files, and Nessus renames downloads across directories
+    # whose policy labels differ, so a recursive relabel finds drift after every plugin update
+    # and never settles (measured 2026-09-30). Nessus runs unconfined, so those labels change
+    # nothing it can reach.
 
     - name: 'PROCESS | Apply The SELinux Label To The Install Root'
       changed_when: __nessus_scanner_relabel__.stdout | length > 0
@@ -262,7 +250,6 @@
       when:
         - not ansible_check_mode
         - __nessus_scanner_selinux__.rc == 0
-        - __nessus_scanner_root__.stat.exists
 
       ansible.builtin.command:
         argv:
@@ -652,9 +639,9 @@
         __unknown__: >-
           {{ __managed__ | list
              | difference((__known__ | list)
-                          + [ 'bw_permanent_blackout_window', 'bw_prevent_agent_scans',
-                              'bw_prevent_core_updates', 'bw_prevent_plugin_updates',
-                              'track_unique_agents' ])
+                          + ['bw_permanent_blackout_window', 'bw_prevent_agent_scans',
+                             'bw_prevent_core_updates', 'bw_prevent_plugin_updates',
+                             'track_unique_agents'])
              | reject('match', '^timeout[.][0-9]+$') | list }}
       when: not (ansible_check_mode and __install_required__ | bool)
 
@@ -852,7 +839,7 @@
       ansible.builtin.assert:
         fail_msg: >-
           OpenSSL could not decode the certificate bundle:
-          {{ __nessus_scanner_decoded__.results | map(attribute='stderr') | map('trim') | unique
+          {{ __nessus_scanner_decoded__.results | map(attribute='stderr') | unique
              | join(' / ') }}. A MAC error means the declared password does not open it; on a
           FIPS host, an unsupported algorithm means a legacy PKCS#12 -- re-mint it with
           scripts/mint-nessus-https.sh.
@@ -905,7 +892,7 @@
 
     # ----------------------------------------------------------------------------------------- #
 
-    - name: 'PROCESS | Read The Certificate Against The Clock And Its Names'
+    - name: 'PROCESS | Read The Declared And Served Certificates'
       changed_when: false
       failed_when: false
       loop:
@@ -1057,7 +1044,7 @@
         - not ansible_check_mode
         - >-
           nessus_scanner_running.administrator.username
-          not in __nessus_scanner_accounts__.stdout_lines | map('trim') | list
+          not in __nessus_scanner_accounts__.stdout_lines
 
       ansible.builtin.command:
         argv:
@@ -1589,7 +1576,9 @@
     - name: 'END | Read The Service State'
       changed_when: false
       failed_when: false
-      loop: [ 'is-enabled', 'is-active' ]
+      loop:
+        - 'is-enabled'
+        - 'is-active'
       loop_control:
         label: "{{ item }}"
       register: '__nessus_scanner_unit__'
