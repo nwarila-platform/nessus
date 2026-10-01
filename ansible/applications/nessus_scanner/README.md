@@ -195,7 +195,7 @@ tool fails at `PROCESS | Require The Bundle To Decode`, and the message names th
 | Constraint | How the role meets it |
 | --- | --- |
 | `localpkg_gpgcheck` | Tenable's key is trusted by pinned fingerprint before `dnf` installs the RPM |
-| fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed and the vendor's FIPS-module step is re-run if it was denied mid-transaction |
+| fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed |
 | `noexec` on `/tmp`, `/var/tmp`, `/home` | Nothing staged in the loader's temporary directory is executed |
 | FIPS mode | System OpenSSL decodes the bundle; RSA-3072 and SHA-256 throughout |
 | Host firewall | Not the role's: the playbook's nftables ruleset is the host's filter, so the role works the same behind any firewall |
@@ -216,13 +216,12 @@ tool fails at `PROCESS | Require The Bundle To Decode`, and the message names th
 `present` and `absent` support `--check`. Reads run for real, and END, which proves what PROCESS
 did, is skipped. Reported as changed: setting drift, the service's enable and start, and an install
 that is due (as its fetch). Read but not reported, because the write is skipped and only settings
-have a "would write" report: the signing-key trust, the FIPS module completion, a missing
-administrator account and a lost registration. Not read, because they need a file only a real run
-fetches or stages -- the bundle's decode, the certificate reads and the HTTPS steps that trust its
-CA are skipped: certificate drift and administrator-password drift. Skipped outright: the
-install-root relabel. Whenever the pinned version is not installed, the steps that need it are
-skipped. TD-010 records these limits; the S3 fetch path under `--check` is unproven, because the
-lab replaces the fetch.
+have a "would write" report: the signing-key trust, a missing administrator account and a lost
+registration. Not read: certificate drift and administrator-password drift, because the bundle's
+decode, the certificate reads and the HTTPS steps that trust its CA need a file only a real run
+fetches or stages. Skipped outright: the install-root relabel. Whenever the pinned version is not
+installed, the steps that need it are skipped. TD-010 records these limits; the S3 fetch path under
+`--check` is unproven, because the lab replaces the fetch.
 
 ## Design invariants
 

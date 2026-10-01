@@ -23,7 +23,7 @@
 
 #region ------ [ Begin: Remove The Nessus Scanner From RedHat ] ------------------------------- #
 
-- name: 'BEGIN | Read The Machine And Decide One Action'
+- name: 'BEGIN | Read The Machine'
 
   # Begin The 'Begin' Block
   block:

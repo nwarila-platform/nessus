@@ -6,8 +6,8 @@
 #
 # BEGIN reads the machine. From those reads PROCESS decides whether the pinned package must be
 # installed and whether the data volume already holds a scanner to adopt, acts on those
-# decisions, and converges everything else on difference -- the vendor key, the package, every
-# setting, the certificate, the one account and the registration. END proves the result.
+# decisions, and converges everything else on difference -- the vendor key, every setting, the
+# certificate, the one account and the registration. END proves the result.
 # Conditions sit on the tasks, never on a stage.
 #
 # END runs on every real run, whatever PROCESS changed, so a converged host proves the same state
@@ -32,7 +32,7 @@
 ---
 #region ------ [ Begin: Converge The Nessus Scanner On RedHat ] ------------------------------- #
 
-- name: 'BEGIN | Read The Machine And Decide'
+- name: 'BEGIN | Read The Machine'
 
   # Begin The 'Begin' Block
   block:
@@ -50,7 +50,7 @@
           - 'rpm'
           - '-q'
           - '--queryformat'
-          - '%{VERSION}\n'
+          - '%{VERSION}'
           - "{{ nessus_scanner_running.package_name }}"
         expand_argument_vars: true
         stdin_add_newline: true
@@ -256,7 +256,7 @@
     # recursive relabel finds drift after every plugin update and never settles (measured
     # 2026-09-30). Nessus runs unconfined, so those labels change nothing it can reach.
 
-    - name: 'PROCESS | Apply The SELinux Labels Under The Install Root'
+    - name: 'PROCESS | Apply The SELinux Label To The Install Root'
       changed_when: __nessus_scanner_relabel__.stdout | length > 0
       register: '__nessus_scanner_relabel__'
       when:
@@ -540,10 +540,8 @@
           - item.1.stat.checksum == item.0.stat.checksum
 
     # ----------------------------------------------------------------------------------------- #
-    # The package's post-install step EXECUTES its bundled OpenSSL moments after unpacking it,
-    # and fapolicyd trusts a file by its RPM digest only once it has learned of it, so on a STIG
-    # host that step can be denied mid-transaction. Refreshing the trust database and checking
-    # for the file the step writes turns a silent partial install into a repaired one.
+    # fapolicyd trusts a file by its RPM digest only once it has learned of it, so its trust
+    # database is refreshed after an install, before anything the package delivered is run.
 
     - name: 'PROCESS | Refresh The fapolicyd Trust Database After The Install'
       changed_when: true
@@ -556,45 +554,6 @@
         argv:
           - 'fapolicyd-cli'
           - '--update'
-        expand_argument_vars: true
-        stdin_add_newline: true
-        strip_empty_ends: true
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Read Whether The Vendor FIPS Module Is Configured'
-      check_mode: false
-      register: '__nessus_scanner_fips_module__'
-
-      ansible.builtin.stat:
-        checksum_algorithm: 'sha1'
-        follow: false
-        get_attributes: false
-        get_checksum: false
-        get_mime: false
-        get_selinux_context: false
-        path: "{{ nessus_scanner_running.install_root }}/etc/nessus/fipsmodule.cnf"
-
-    # ----------------------------------------------------------------------------------------- #
-    # The vendor's own command, exactly as its post-install step runs it.
-
-    - name: 'PROCESS | Complete The Vendor FIPS Module Installation'
-      changed_when: true
-      environment:
-        OPENSSL_CONF: "{{ nessus_scanner_running.install_root }}/etc/"
-      when:
-        - not ansible_check_mode
-        - not (__nessus_scanner_fips_module__.stat.exists and __nessus_scanner_fips_module__.stat.size > 0)
-
-      ansible.builtin.command:
-        argv:
-          - "{{ nessus_scanner_running.install_root }}/bin/openssl"
-          - 'fipsinstall'
-          - '-out'
-          - "{{ nessus_scanner_running.install_root }}/etc/nessus/fipsmodule.cnf"
-          - '-module'
-          - "{{ nessus_scanner_running.install_root }}/lib/nessus/fips.so"
-          - '-self_test_oninstall'
         expand_argument_vars: true
         stdin_add_newline: true
         strip_empty_ends: true
@@ -1251,8 +1210,8 @@
               nessuscli fetch --register failed
               (rc={{ __nessus_scanner_registered__.rc }}):
               {{ __nessus_scanner_registered__.stdout_lines[-3:] | join(' / ') }}.
-              A 400 means Tenable refused the activation code: check that it is current and not
-              already in use by another scanner.
+              A 400 means Tenable refused the activation code: check that it is current and has
+              not registered a scanner before (TD-007).
             quiet: true
             that: __nessus_scanner_registered__.rc == 0
 
@@ -1419,7 +1378,8 @@
     # response -- with it the product's own error. They never fail; the require at the end of
     # this region names any answer that is not a session by its status and the product's own
     # error. A scanner whose API is unavailable closes the connection on the sign-in: curl reads
-    # 412 "API is not available", and uri reports -1 (measured 2026-10-01).
+    # 412 "API is not available", and uri reports -1 or, cut short, no status at all (measured
+    # 2026-10-01).
 
     - name: 'PROCESS | Sign In As The Administrator'
       changed_when: false

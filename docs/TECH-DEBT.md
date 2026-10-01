@@ -143,9 +143,9 @@
     and administrator-password drift are not reported. That `s3_object` reports a skipped get as
     changed is read from amazon.aws 11.4.0's source ("GET operation skipped - running in check
     mode"), never run: the lab replaces the fetch, and the deploy never runs `--check`.
-  - The signing-key trust, the FIPS module completion, a missing administrator account and a lost
-    registration are read, but their writes are skipped and only settings have a "would write"
-    report; reporting them the same way is possible later work. The install-root relabel is
+  - The signing-key trust, a missing administrator account and a lost registration are read, but
+    their writes are skipped and only settings have a "would write" report; reporting them the
+    same way is possible later work. The install-root relabel is
     skipped outright.
   - END proves what PROCESS did, so a check run skips it.
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
