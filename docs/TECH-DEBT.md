@@ -150,23 +150,26 @@
 - **Exit criteria:** a held bed converged with `--check` from the real controller shows the fetch
   path skipping cleanly, and the playbook's own check-mode behaviour is decided.
 
-## TD-011 — CLOSED 2026-10-01 — the settled-registration read is redundant
+## TD-011 — CLOSED 2026-10-01 — the settled-registration read is removed
 
 - **Recorded:** 2026-10-01. **Closed:** 2026-10-01.
 - **Original issue:** `PROCESS | Read Whether The Settled Scanner Is Registered`
   (`nessuscli fetch --check`) ran when the readiness wait settled on 'register', to decide the one
   restart that clears a stale setup state.
 - **Closure evidence:**
-  - The read and the restart's clause on it are removed. Control flow made the read answer 0 on
-    every path a run can reach: the scanner was already registered (`nessuscli fetch --check`
-    answered 0), or `PROCESS | Require The Registration To Succeed` passed, in a block with no
-    rescue.
-  - Parity: where the read answered 0, the restart runs exactly as before. Were it ever to answer
-    non-zero on a registered scanner, the restart now runs where the readiness require would have
-    failed for certain. A scanner that is genuinely unregistered still fails loudly at END's
-    registration proof.
-  - The stale-'register' restart has not run without the read: no lab scanner is registered, and no
-    AWS deploy since has settled on 'register'.
+  - The read and the restart's clause on it are removed. Control flow ran the read only on a
+    scanner whose registration had just been confirmed: the scanner was already registered
+    (`nessuscli fetch --check` answered 0), or `PROCESS | Require The Registration To Succeed`
+    passed, in a block with no rescue.
+  - Parity, when the read was removed: where it answered 0, the restart ran exactly as before. Had
+    it ever answered non-zero on a registered scanner, the restart would have run where the
+    readiness require would have failed for certain. A scanner that is genuinely unregistered still
+    fails loudly at END's registration proof.
+  - The stale-'register' restart never ran in a deploy: the three AWS deploys that reached it
+    (36765880901, 36773018135, 36837460712) settled on 'ready'. It ran once in a lab run, on a stale
+    state made by hand (an account added to a running scanner), which it cleared. It was then
+    removed too: the service is restarted after the account is created, before registration and the
+    readiness wait, so no start that wait depends on lacks the account.
 
 ## TD-012 — OPEN — the fapolicyd trust refresh may be redundant
 

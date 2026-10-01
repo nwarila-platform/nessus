@@ -8,8 +8,7 @@ the declared certificate when what Nessus serves differs; creates the one admini
 from the command line **before** registration, because the web tier reads whether setup is
 complete when the service starts; registers the scanner with its activation code and fetches the
 plugins; waits until Nessus reports ready **over HTTPS validated against the declared CA and
-hostname**, restarting once if a registered scanner settles on a stale `register` state (measured
-2026-09-30); proves the account by signing in to the API, converging its password if it moved;
+hostname**; proves the account by signing in to the API, converging its password if it moved;
 and verifies the result against the machine: the installed version, the service, the
 registration, and the fingerprint of the certificate the listener actually serves. Every step
 reads before it writes, so a converged host reports no change.

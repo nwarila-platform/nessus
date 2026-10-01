@@ -182,7 +182,7 @@
     # in empty first. Booleans compare by meaning: the catalogue reports true/false where the
     # store holds yes/no.
     __differ__: >-
-      {{ [] if (ansible_check_mode and __install_required__ | bool) else (
+      {{ [] if ansible_check_mode and __install_required__ | bool else (
          __managed__.items() | map('join', '=')
          | map('regex_replace', '(?i)=(true|yes)$', '=yes')
          | map('regex_replace', '(?i)=(false|no)$', '=no') | list
@@ -575,7 +575,7 @@
     # exit status 2026-10-01), so the catalogue read, the first 'nessuscli fix' after the start,
     # retries until it exits 0.
 
-    - name: 'PROCESS | Wait For The Settings Store And Read Its Catalogue'
+    - name: 'PROCESS | Wait For The Settings Store And Read The Catalogue'
       changed_when: false
       check_mode: false
       delay: "{{ nessus_scanner_running.timeouts.settings_pause_seconds | int }}"
@@ -1205,73 +1205,15 @@
     # must carry. /server/status answers 503 while plugins compile and 200 once ready; a refused
     # connection while the service starts is just another attempt. Only a real run decodes that
     # CA, so --check skips every HTTPS step, the account's included.
-    #
-    # It first waits for Nessus to SETTLE: 'ready', or 'register' with its engine and feed both
-    # ready. A scanner that settles on 'register' -- registered by now -- holds a stale setup
-    # state; it is restarted once, and then only 'ready' passes (measured 2026-09-30 on 10.12.4:
-    # everything ready, status 'register' for 55 minutes; one restart, 'ready' 95 seconds later).
 
-    - name: 'PROCESS | Wait Until Nessus Settles'
+    - name: 'PROCESS | Wait Until Nessus Reports Ready'
       changed_when: false
       delay: "{{ nessus_scanner_running.timeouts.ready_pause_seconds | int }}"
       failed_when: false
       register: '__nessus_scanner_status__'
       retries: "{{ nessus_scanner_running.timeouts.ready_attempts | int }}"
-      until: >-
-        __nessus_scanner_status__.json.status | default('') == 'ready'
-        or (__nessus_scanner_status__.json.status | default('') == 'register'
-            and __nessus_scanner_status__.json.detailed_status.engine_status.status == 'ready'
-            and __nessus_scanner_status__.json.detailed_status.feed_status.status == 'ready')
+      until: __nessus_scanner_status__.json.status | default('') == 'ready'
       when: not ansible_check_mode
-
-      ansible.builtin.uri:
-        body_format: 'raw'
-        ca_path: "{{ __pem__.ca }}"
-        decompress: true
-        follow_redirects: 'safe'
-        force: false
-        force_basic_auth: false
-        headers: {}
-        http_agent: 'ansible-httpget'
-        method: 'GET'
-        remote_src: false
-        return_content: true
-        status_code: [ 200, 503 ]
-        timeout: 30
-        unredirected_headers: []
-        unsafe_writes: false
-        url: "{{ __base_url__ }}/server/status"
-        use_gssapi: false
-        use_netrc: false
-        use_proxy: true
-        validate_certs: true
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Restart Once To Clear A Stale Setup State'
-      register: '__nessus_scanner_unstuck__'
-      when:
-        - not ansible_check_mode
-        - __nessus_scanner_status__.json.status | default('') == 'register'
-
-      ansible.builtin.systemd_service:
-        daemon_reexec: false
-        daemon_reload: false
-        name: "{{ nessus_scanner_running.service_name }}"
-        no_block: false
-        scope: 'system'
-        state: 'restarted'
-
-    # ----------------------------------------------------------------------------------------- #
-
-    - name: 'PROCESS | Wait Until Nessus Reports Ready After The Restart'
-      changed_when: false
-      delay: "{{ nessus_scanner_running.timeouts.ready_pause_seconds | int }}"
-      failed_when: false
-      register: '__nessus_scanner_status_after__'
-      retries: "{{ nessus_scanner_running.timeouts.ready_attempts | int }}"
-      until: __nessus_scanner_status_after__.json.status | default('') == 'ready'
-      when: __nessus_scanner_unstuck__ is not skipped
 
       ansible.builtin.uri:
         body_format: 'raw'
@@ -1298,21 +1240,18 @@
     # ----------------------------------------------------------------------------------------- #
 
     - name: 'PROCESS | Require Nessus Ready Over Validated HTTPS'
-      vars:
-        __final__: >-
-          {{ __nessus_scanner_status_after__
-             if (__nessus_scanner_status_after__ is not skipped) else __nessus_scanner_status__ }}
       when: not ansible_check_mode
 
       ansible.builtin.assert:
         fail_msg: >-
           Nessus did not report ready over HTTPS validated against the declared CA. Last answer:
-          {{ __final__.msg | default('uri returned no status: the request did not complete') }}
-          {{ __final__.json | default({}) | to_json }}
+          {{ __nessus_scanner_status__.msg
+             | default('uri returned no status: the request did not complete') }}
+          {{ __nessus_scanner_status__.json | default({}) | to_json }}
         quiet: true
         that:
-          - __final__.status | default(-1) == 200
-          - __final__.json.status == 'ready'
+          - __nessus_scanner_status__.status | default(-1) == 200
+          - __nessus_scanner_status__.json.status == 'ready'
 
     #endregion --- [ Process: Wait Until Ready, Over Validated HTTPS ] ------------------------ #
 
@@ -1440,7 +1379,7 @@
       vars:
         __session__: >-
           {{ __nessus_scanner_signin_again__
-             if (__nessus_scanner_signin_again__ is not skipped) else __nessus_scanner_signin__ }}
+             if __nessus_scanner_signin_again__ is not skipped else __nessus_scanner_signin__ }}
       when: not ansible_check_mode
 
       ansible.builtin.assert:
@@ -1638,7 +1577,7 @@
       vars:
         __session__: >-
           {{ __nessus_scanner_signin_again__
-             if (__nessus_scanner_signin_again__ is not skipped) else __nessus_scanner_signin__ }}
+             if __nessus_scanner_signin_again__ is not skipped else __nessus_scanner_signin__ }}
       when: __session__.json.token is defined
 
       ansible.builtin.uri:
