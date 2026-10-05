@@ -200,9 +200,9 @@
     whose trigger was not isolated (within three minutes in the lab);
   - the backend log shows the Essentials licence payload re-applied at each.
 
-  The two settings are therefore left to Nessus (`~`), and usage telemetry and the in-app guides
-  reach Tenable as the licence requires. The reads are recorded in the pull request that opened
-  this entry.
+  The two settings are therefore left to Nessus (`~`): usage telemetry is sent and the in-app
+  guides are shown, as the licence requires. The reads are recorded in the pull request that
+  opened this entry.
 - **Exit criteria:** a licence under which a lab scanner keeps `send_telemetry: no` and
   `disable_guides: yes` through a restart and a backend reload; then both are declared again and
   marked `Hardened:`.
