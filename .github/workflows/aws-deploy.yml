@@ -105,10 +105,11 @@ jobs:
       - name: Mask and check the activation code
         env:
           # Runner diagnostic logging writes the whole job message, dispatch inputs included, to a
-          # log anyone can download from this public repository, before any mask exists.
+          # log anyone can download from this public repository, before any mask exists. runner.debug
+          # reflects step debug only, so the variable and the secret that enable it are read by name.
           DEBUG_LOGGING: >-
             ${{ runner.debug == '1' || vars.ACTIONS_RUNNER_DEBUG == 'true'
-                || secrets.ACTIONS_RUNNER_DEBUG == 'true' }}
+            || secrets.ACTIONS_RUNNER_DEBUG == 'true' }}
         run: |
           set -euo pipefail
           if [ "${DEBUG_LOGGING}" = 'true' ]; then
