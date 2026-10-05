@@ -87,8 +87,9 @@ nessus_scanner_defaults:
   # converge writes whichever differ; 'fix --set' refuses a value outside a setting's range, and
   # a name this Nessus does not have is refused because 'fix --set' would store it silently.
   #   * To change one, set it by name in the playbook's nessus_scanner.settings.
-  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware or are state
-  #     Nessus rewrites itself, so pinning the lab's values would be wrong here.
+  #   * ~ leaves a setting to Nessus. Those below are computed from the hardware, are state Nessus
+  #     rewrites itself, or are imposed by the licence (TD-013), so a pinned value would be wrong
+  #     or would not hold.
   #   * 'Hardened:' marks a value changed from the product's for a common STIG control. Controls
   #     left at the product's value are listed in the role README, with the reason.
   #   * yes/no and true/false compare as equal; Nessus reports booleans either way.
@@ -257,7 +258,7 @@ nessus_scanner_defaults:
     remote_listen_port: ''
     child_node_listen_port: ''
     report_cleanup_threshold_days: '30'
-    # Hardened: nothing leaves the scanner but its own feed traffic (CM-7)...
+    # Hardened: no crash reports go to Tenable (CM-7).
     report_crashes: 'no'
     scan_history_expiration_days: '0'
     orphaned_scan_cleanup_days: '30'
@@ -277,11 +278,12 @@ nessus_scanner_defaults:
     sys_pread_timeout_msec: '5000'
     docker_pull_timeout_msec: '300000'
     windows_minidump: 'false'
-    # ...so neither crash reports nor usage telemetry go to Tenable...
-    send_telemetry: 'no'
+    # The Essentials licence imposes usage telemetry and the in-app guides: it rewrites both at
+    # registration, at every start and at a backend reload (measured 2026-10-05), so they are
+    # left to it (TD-013).
+    send_telemetry: ~
     telemetry_period: '1440'
-    # ...and the in-app guides, which need telemetry anyway, are off.
-    disable_guides: 'yes'
+    disable_guides: ~
     scan_stats_cleanup_days: '30'
     scan_stats_cleanup_rows: '1000000'
     show_initial_scan_wizard: 'true'

@@ -306,8 +306,8 @@
     # (measured 2026-10-01 with a distribution-signed RPM). allow_downgrade because the pin is
     # authoritative both ways.
     #
-    # The controller fetches the RPM with its own AWS credentials, so the guest is never given
-    # any. The module probes the BUCKET before the object, and that probe needs a bucket-level
+    # The controller fetches the RPM with its own AWS credentials, so the role gives the guest
+    # none. The module probes the BUCKET before the object, and that probe needs a bucket-level
     # grant this deployment deliberately does not hold; skipping it is the module's documented
     # answer for that policy shape. A missing object still fails loudly through head_object.
     #

@@ -114,12 +114,13 @@ On every converge the role:
   because Nessus reports booleans both ways;
 - names any setting Nessus has that the declaration lacks, which is how a version bump shows up.
 
-`~` leaves a setting to Nessus. Six are left that way by default: five that Nessus computes from
+`~` leaves a setting to Nessus. Eight are left that way by default: five that Nessus computes from
 the hardware (`engine.max`, `engine.min`, `global.max_hosts`, `global.max_portscanners`,
-`global.max_simult_tcp_sessions`), and `plugin_detail_locale_current`, which is state Nessus
-rewrites itself. Per-plugin timeouts are declared as `timeout.<plugin id>`. Values must be quoted,
-because an unquoted `yes` is a YAML boolean. The listener port has one source, `listener.port`, so
-naming `xmlrpc_listen_port` in `settings` is refused.
+`global.max_simult_tcp_sessions`); `plugin_detail_locale_current`, which is state Nessus rewrites
+itself; and `send_telemetry` and `disable_guides`, which the Essentials licence imposes (TD-013).
+Per-plugin timeouts are declared as `timeout.<plugin id>`. Values must be quoted, because an
+unquoted `yes` is a YAML boolean. The listener port has one source, `listener.port`, so naming
+`xmlrpc_listen_port` in `settings` is refused.
 
 ### Hardening
 
@@ -139,8 +140,7 @@ was proven in the lab on 2026-10-01 (RHEL 8, Nessus 10.12.4) without breaking th
 | `passwd_complexity` | `yes` | IA-5(1) | Nessus requires 3 of 4 character classes; the role's validation requires all 4 of the declared password |
 | `passwd_notifications` | `yes` | AC-9 | Last successful and failed sign-ins shown |
 | `max_sessions_per_user` | `3` | AC-10 | A fourth concurrent session is refused; the role holds one and signs out |
-| `report_crashes`, `send_telemetry` | `no` | CM-7 | Nothing goes to Tenable but feed traffic |
-| `disable_guides` | `yes` | CM-7 | In-app messaging off (it needs telemetry anyway) |
+| `report_crashes` | `no` | CM-7 | No crash reports go to Tenable |
 | `hide_activation_code` | `yes` | IA-5 | The licence secret is not shown in the interface |
 | `log_details` | `yes` | AU-3 | Scan logs name the user and the scan |
 | `qdb_mem_usage` | `high` | Performance | Tenable's setting for a dedicated server |
@@ -148,6 +148,10 @@ was proven in the lab on 2026-10-01 (RHEL 8, Nessus 10.12.4) without breaking th
 Two more are deliberate: `auto_update: yes` keeps plugins current, and `disable_core_updates: yes`
 with `auto_update_ui: no` stops the software replacing itself. The installed version stays the
 pinned RPM, which fapolicyd trusts by its digest.
+
+Left to the licence: `send_telemetry` and `disable_guides`. The Essentials licence turns usage
+telemetry and the in-app guides on at registration, at every start and at a backend reload
+(measured 2026-10-05), so no value the role writes holds (TD-013).
 
 Left at the product's value on purpose, because the hardened value breaks common use:
 
