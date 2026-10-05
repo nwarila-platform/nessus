@@ -30,6 +30,12 @@ empty: the scanner joins no directory.
 
 ## Changes from the fleet baseline
 
+**`nwarila-platform_nessus_reaper_ec2` (desired; `not_yet_applied`)** lets the reaper stop an
+owned instance as well as terminate it, under the same tag conditions. The framework's
+`aws_volume_attachment` sets `stop_instance_before_detaching`, so the reaper's `terraform destroy`
+must stop the instance before the data volume detaches; without `ec2:StopInstances` it fails
+on the first attachment and strands the stack.
+
 **`nwarila-platform_nessus_runner_ebs` v4 (published 2026-09-30) is the fleet baseline again**: v1's
 document, republished. Its v2 and v3 added tag-scoped snapshot grants for a `preserve_data` flag
 that carried the data volume between runs. The flag was withdrawn the same day, because the one

@@ -19,7 +19,10 @@
       "Sid": "DescribeForDestroyRefresh"
     },
     {
-      "Action": "ec2:TerminateInstances",
+      "Action": [
+        "ec2:StopInstances",
+        "ec2:TerminateInstances"
+      ],
       "Condition": {
         "Null": {
           "ec2:ResourceTag/CommitSha": "false",
@@ -34,7 +37,7 @@
       },
       "Effect": "Allow",
       "Resource": "arn:aws:ec2:<region>:<account-id>:instance/*",
-      "Sid": "TerminateOwnedInstancesOnly"
+      "Sid": "StopAndTerminateOwnedInstancesOnly"
     }
   ],
   "Version": "2012-10-17"

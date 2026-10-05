@@ -79,7 +79,9 @@ POLICY_VERSIONS[f"{PREFIX}_runner_s3"] = "v2"
 POLICY_VERSIONS[f"{PREFIX}_runner_ebs"] = "v4"
 EXPORTED = "2026-09-30"
 # runner_s3 drops the activation code: the deploy now takes it at dispatch and reads no object for it.
-NOT_YET_APPLIED = [f"{PREFIX}_runner_s3"]
+# reaper_ec2 gains ec2:StopInstances beside TerminateInstances: a data volume detaches only from a
+# stopped instance, so the reaper's destroy needs it.
+NOT_YET_APPLIED = [f"{PREFIX}_reaper_ec2", f"{PREFIX}_runner_s3"]
 
 BUCKETS = {
     "registry://aws/s3/ansible": "<account-id>-ansible",
