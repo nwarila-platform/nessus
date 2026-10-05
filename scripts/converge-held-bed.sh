@@ -17,6 +17,7 @@
 #   scripts/converge-held-bed.sh                 # newest held run
 #   scripts/converge-held-bed.sh 33550502392     # a specific run id
 #   RUN_ARGS='-e state=absent' scripts/converge-held-bed.sh
+#   The play reads NESSUS_ACTIVATION_CODE from the environment: export the held bed's own code.
 #
 # ============================================================================================= #
 set -euo pipefail

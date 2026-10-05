@@ -121,7 +121,7 @@
   become: true
   tags: ['products']
   vars:
-    # Where every Nessus deployment object lives: the runner reads exactly these four objects,
+    # Where every Nessus deployment object lives: the runner reads exactly these three objects,
     # and nothing else under the prefix (dependencies/aws/policies/…_runner_s3.json).
     nessus_objects_bucket: "{{ aws_account_id }}-ansible"
     nessus_objects_prefix: 'applications/nessus'
@@ -146,8 +146,8 @@
             version: '10.12.4'
             sha256: 'df378dd85dea63c0bd1e07d35262e967dca1a0286d84e783edcf956fa85a5444'
 
-          # Read on the controller; never logged.
-          activation_code: "{{ lookup('secret', nessus_secret_prefix ~ '/activation-code.txt') }}"
+          # Supplied at dispatch (aws-deploy.yml's activation_code), never stored; never logged.
+          activation_code: "{{ lookup('ansible.builtin.env', 'NESSUS_ACTIVATION_CODE') }}"
 
           administrator:
             password: "{{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') }}"
