@@ -73,12 +73,12 @@ controller's Ansible environment needs the `amazon.aws` collection with supporte
 
 Required deployment-specific inputs carry an account id or change with every site, so the
 playbook states them where a reader can see them: the installer (bucket, three-part version,
-digest), the activation code, the administrator password, and the HTTPS bundle (bucket, object
-key, digest and password). The installer's object key defaults to the application repository's
-`<Publisher>/<Application>/<version>/<file>` layout, with the token `<version>` replaced by
-`installer.version` at fetch. The administrator's username defaults to `nessusadmin` and the
-listener to port 8834; the caller may change either, and any setting by name (below). Nothing
-under this role names an account, bucket or secret.
+digest), the activation code, the administrator account (username and password), and the HTTPS
+bundle (bucket, object key, digest and password). The installer's object key defaults to the
+application repository's `<Publisher>/<Application>/<version>/<file>` layout, with the token
+`<version>` replaced by `installer.version` at fetch. The listener defaults to port 8834; the
+caller may change it, and any setting by name (below). Nothing under this role names an account,
+bucket or secret.
 
 `tasks/validate.yml` enforces these inputs on the controller before the role changes anything on
 the guest, and a failure names the input and never prints a secret. `installer.version` is

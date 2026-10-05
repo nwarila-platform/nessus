@@ -16,7 +16,8 @@
 #   nessus_scanner.installer.sha256         Lowercase 64-character digest of that object, verified
 #                                           on the CONTROLLER before the guest is given a copy.
 #   nessus_scanner.activation_code          The Tenable activation code that registers the scanner.
-#   nessus_scanner.administrator.password   Password of the one Nessus account.
+#   nessus_scanner.administrator.username   Name of the one Nessus account.
+#   nessus_scanner.administrator.password   Its password.
 #   nessus_scanner.certificate.bucket       S3 bucket holding the PKCS#12 HTTPS bundle.
 #   nessus_scanner.certificate.key          Its key; the bundle holds the server key, the server
 #                                           certificate and exactly one CA certificate.
