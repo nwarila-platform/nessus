@@ -30,7 +30,7 @@
 #   nessus-https-p12-password.txt     its password           -> s3://<account-id>-ansible/applications/nessus/
 #   nessus-ca.pem                     the public CA certificate for clients to trust (not uploaded)
 # Then prints the bundle's SHA-256, which ansible/playbooks/nessus-aws.yml and
-# dependencies/aws/artifacts.yml both pin; dependencies/MANIFEST.sha256 is regenerated after.
+# dependencies/aws/artifacts.yml both pin; then regenerate dependencies/MANIFEST.sha256.
 #
 # =========================================================================================== #
 set -euo pipefail
@@ -84,7 +84,8 @@ printf '%s\n' \
     'keyUsage=critical,digitalSignature,keyEncipherment' \
     'extendedKeyUsage=serverAuth' \
     "subjectAltName=${san}" > "${WORK_DIR}/server.ext"
-# 397 days: inside the 398-day maximum that publicly trusted certificates are held to.
+# 397 days follows the 398-day ceiling for publicly trusted certificates; a private CA is not
+# bound by it.
 ossl 'signing the server certificate' x509 -req -sha256 -days 397 -in "${WORK_DIR}/server.csr" \
     -CA "${WORK_DIR}/ca.pem" -CAkey "${WORK_DIR}/ca.key" -CAcreateserial \
     -extfile "${WORK_DIR}/server.ext" -out "${WORK_DIR}/server.pem"
