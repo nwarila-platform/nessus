@@ -89,12 +89,13 @@
   machine — every run, and every OS-drive replacement — needs a fresh code, and a run without
   one goes red at registration, by name.
 - **Decision (2026-09-30):** keep the ephemeral lifecycle; the owner supplies a fresh code per
-  registering run. No copy of the registration's own records avoids that: run 36779428440 carried
-  every one of them onto a new instance, which still reported unregistered. For the same reason the
-  snapshot-based `preserve_data` flag was withdrawn the same day. It carried the data between runs,
-  but not the registration it was wanted for. Since 2026-10-05 the deploy runs only when dispatched,
-  and the code is typed into its `activation_code` input, masked in the logs and never stored: a
-  push or a schedule has no code to give, and every scheduled run before then failed.
+  registering run. No copy of the registration's own records avoids that: run 36779428440
+  carried every one of them onto a new instance, which still reported unregistered. For the same
+  reason the snapshot-based `preserve_data` flag was withdrawn the same day. It carried the data
+  between runs, but not the registration it was wanted for. Since 2026-10-05 the deploy runs only
+  when dispatched, and the code is typed into its `activation_code` input, masked in the logs and
+  never stored: a push or a schedule has no code to give, and every scheduled run before then
+  failed.
 - **Exit criteria:** a licence whose code re-registers on a new host (Professional or Expert), so
   that ordinary runs and OS-drive replacements stop consuming codes, and an `os_swap` run passes
   end to end.

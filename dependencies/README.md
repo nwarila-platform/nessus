@@ -22,7 +22,7 @@ the closed export set: three roles, zero profiles, and fifteen customer-managed 
 `policies` and `divergence` objects are declared local extensions to the golden manifest schema.
 
 `aws/artifacts.yml` declares the exactly consumed S3 objects: the installer and the HTTPS bundle,
-with their SHA-256 pins, and the three secrets, deliberately without digests. IAM policy documents
+with their SHA-256 pins, and the two secrets, deliberately without digests. IAM policy documents
 separately declare authorization, and the validator proves the two agree.
 
 There is no `ad/` directory because this repository's verified Active Directory footprint is
@@ -35,16 +35,13 @@ document, republished. Its v2 and v3 added tag-scoped snapshot grants for a `pre
 that carried the data volume between runs. The flag was withdrawn the same day, because the one
 thing it was wanted for, Tenable's registration, is bound to the machine and did not carry.
 
-**`nwarila-platform_nessus_runner_s3` (desired; `not_yet_applied`)** drops the activation code
-from that statement: the deploy now takes the code at dispatch and reads no object for it, so the
-desired document names three objects. The history below is v2's.
-
-**`nwarila-platform_nessus_runner_s3`** carries one statement the other repositories' runners do not:
-`ReadOnlyTheNessusDeploymentObjects`. It grants `s3:GetObject` on exactly the four objects under
-`<account-id>-ansible/applications/nessus/` that the playbook reads: the activation code, the
-administrator password, the HTTPS bundle and its password. It was published from the tracked
-document as the policy's v2 on 2026-09-30. The re-export was byte-identical to this tree, and IAM
-policy simulation allowed each of the four objects and denied a fifth key under the same prefix.
+**`nwarila-platform_nessus_runner_s3` (desired v3; `not_yet_applied`)** carries one statement the
+other repositories' runners do not: `ReadOnlyTheNessusDeploymentObjects`, `s3:GetObject` on exactly
+the three objects under `<account-id>-ansible/applications/nessus/` that the playbook reads: the
+administrator password, the HTTPS bundle and its password. The live v2, published from the tracked
+document on 2026-09-30, also granted the activation code; its re-export was byte-identical, and IAM
+policy simulation allowed each of its four objects and denied a fifth key under the same prefix.
+The deploy now takes the code at dispatch and reads no object for it, so v3 drops it.
 
 ## External dependencies
 

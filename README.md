@@ -72,7 +72,11 @@ The `aws-deploy` workflow owns the lifecycle:
 
 The deploy runs only when dispatched on `main`, because every run registers a new scanner and needs
 a fresh activation code (TD-007). `workflow_dispatch` takes five inputs:
-- `activation_code`, the fresh code, masked in the logs and never stored;
+- `activation_code`, the fresh code, masked in the logs and never stored. Type it into the Run
+  workflow form, since `gh workflow run -f` leaves it in shell history. Never enable debug logging
+  on this workflow: the runner's diagnostic log, public here, records the dispatch inputs, so the
+  run refuses to start and the code must be treated as disclosed. A re-run reuses the same code,
+  so dispatch afresh instead;
 - `hold_minutes` keeps the scanner up for interactive work;
 - `os_swap` replaces the OS drive and proves the scanner adopts its data volume (below);
 - `absent_proof` proves `state=absent` removes it idempotently;

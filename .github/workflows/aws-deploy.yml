@@ -28,11 +28,9 @@
 #   * One fixed state key; this workflow's concurrency group prevents overlapping applies and
 #     never cancels a live lifecycle. A later lifecycle can clean predecessor state before apply,
 #     and aws-reaper.yml destroys what a run killed before destroy leaves behind.
-#   * DISPATCH ONLY, on protected main. Every run registers a new scanner, and a Nessus
-#     Essentials code registers one scanner once (TD-007), so the operator supplies a fresh code
-#     at dispatch; a push or a schedule has none to give and could only fail. The code is masked
-#     before any step can print it and is given only to the converges that may register. One
-#     durable incident is updated on failure and closed after the next success.
+#   * The lifecycle runs only when dispatched on protected main: every run registers a new
+#     scanner, which needs a fresh activation code (TD-007), so the operator supplies one at
+#     dispatch. One durable incident is updated on failure and closed after the next success.
 # =========================================================================================== #
 name: AWS Deploy
 
@@ -40,7 +38,7 @@ name: AWS Deploy
   workflow_dispatch:
     inputs:
       activation_code:
-        description: A fresh Nessus activation code, masked in the logs and never stored. Enter it here, not with gh -f (shell history); a re-run reuses a spent one.
+        description: A fresh Nessus activation code; masked in the logs, never stored; never with debug logging
         type: string
         required: true
       hold_minutes:
@@ -102,17 +100,26 @@ jobs:
       CI_KEY_NAME: nwarila-ec2-key
 
     steps:
-      # Read from the event file, so the code is masked before any step's env can carry it;
-      # masking the input expression itself would print it once in that step's own header. The
-      # shape check is validate.yml's own rule, repeated so a typo fails before Terraform rather
-      # than after an apply; validate.yml stays the owner of the contract.
+      # Read from the event file, because masking the input expression would print it once in
+      # this step's own header. The check is validate.yml's rule, repeated to fail before Terraform.
       - name: Mask and check the activation code
+        env:
+          # Runner diagnostic logging writes the whole job message, dispatch inputs included, to a
+          # log anyone can download from this public repository, before any mask exists.
+          DEBUG_LOGGING: >-
+            ${{ runner.debug == '1' || vars.ACTIONS_RUNNER_DEBUG == 'true'
+                || secrets.ACTIONS_RUNNER_DEBUG == 'true' }}
         run: |
           set -euo pipefail
-          # Trimmed at the ends only, as validate.yml trims: inner whitespace must fail the check,
-          # because a mask of the squeezed value would not cover the value the converges are given.
-          code="$(jq -r '.inputs.activation_code // ""' "${GITHUB_EVENT_PATH}" \
-            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+          if [ "${DEBUG_LOGGING}" = 'true' ]; then
+            echo "::error::Debug logging is on, so this run's diagnostic log holds the activation code. Treat that code as disclosed; dispatch again with a fresh one and debug logging off."
+            exit 1
+          fi
+          code="$(jq -r '.inputs.activation_code // ""' "${GITHUB_EVENT_PATH}")"
+          # Trimmed at the ends only: inner whitespace must fail the check, because a mask of the
+          # squeezed value would not cover the value the converges are given.
+          code="${code#"${code%%[![:space:]]*}"}"
+          code="${code%"${code##*[![:space:]]}"}"
           if [[ ! "${code}" =~ ^[A-Za-z0-9-]{16,64}$ ]]; then
             echo "::error::activation_code must be 16-64 letters, digits and dashes; re-dispatch with a fresh code."
             exit 1
@@ -417,7 +424,7 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           SKIP_PRODUCTS: ${{ inputs.skip_products }}
-          # Masked by the first step. Only the four state=present converges are given it.
+          # Masked by the first step; given only to the state=present converges.
           NESSUS_ACTIVATION_CODE: ${{ inputs.activation_code }}
         run: |
           set -euo pipefail
