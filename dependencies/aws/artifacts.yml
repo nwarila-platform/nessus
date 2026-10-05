@@ -1,6 +1,6 @@
 # This file declares consumption; IAM policy documents declare authorization.
 # Every object here is read on the CONTROLLER with the runner's credentials; the guest receives
-# a verified copy and never holds cloud credentials of its own.
+# a verified copy, and its own instance profile can read none of them.
 schema: aws-artifacts/v1
 artifacts:
   # Tenable's published SHA-256 for this build; the guest verifies it and the vendor signature.

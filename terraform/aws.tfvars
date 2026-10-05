@@ -41,12 +41,11 @@ all_systems = [
     # lives only in the AWS_EC2_SSH_PRIVATE_KEY organization secret and the runner's
     # temporary directory.
     key_name = "nwarila-ec2-key"
-    # The org EC2 baseline plus read-only access to the application repository bucket. The
-    # scanner needs nothing from that bucket at runtime -- the controller fetches the installer
-    # and hands the guest a verified copy -- but it is the same profile the fleet's other
-    # repository-built hosts run as, and SSM through AmazonSSMManagedInstanceCore is the
-    # administrator's backup connection. The runner role only reads and passes it.
-    iam_instance_profile = "nwarila-ec2-apprepo-profile"
+    # The org EC2 baseline: SSM through AmazonSSMManagedInstanceCore, the administrator's backup
+    # connection, and the baseline's read of two Windows OpenSSH cabs this host never uses. The
+    # controller fetches every artifact and hands the guest a verified copy, so the guest needs
+    # no read of the application repository. The runner role only reads and passes the profile.
+    iam_instance_profile = "nwarila-ec2-profile"
     aws_kms_alias        = "aws/ebs"
     # CIS Red Hat Enterprise Linux 8 Benchmark - STIG - v07 (owner 679593333241): the hardened
     # base the secure-wazuh Linux legs are proven on. FIPS mode, fapolicyd, SELinux enforcing,

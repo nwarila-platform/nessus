@@ -24,7 +24,7 @@
 #   nessus_scanner.certificate.sha256       Lowercase 64-character digest of the bundle.
 #   nessus_scanner.certificate.password     The bundle's password.
 #
-# The playbook resolves secret values on the CONTROLLER. The guest is never given cloud
+# The playbook resolves secret values on the CONTROLLER. The role gives the guest no cloud
 # credentials: the controller fetches every object and hands the guest a verified copy.
 # =========================================================================================== #
 ---

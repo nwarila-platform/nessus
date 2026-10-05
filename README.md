@@ -45,8 +45,10 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   local-package signature checks and a default-drop nftables firewall are all live on the target, and every step is
   shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
 - **No stored cloud keys.** GitHub OIDC only, gated to protected `main`, with a separate tag-scoped
-  cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest never
-  receives cloud credentials: the controller fetches every object and hands it a verified copy.
+  cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest is handed no
+  credentials for the deployment's objects: the controller fetches every object and hands it a
+  verified copy, and the host's own instance profile carries only SSM and the org baseline's read
+  of two Windows OpenSSH cabs.
 - **Declared dependencies.** [`dependencies/`](dependencies/) records the IAM, artifacts and secrets
   the deployment depends on. A credential-free validator proves they are closed, tokenized, and in
   agreement with what the playbook consumes.

@@ -14,10 +14,10 @@ registration, and the fingerprint of the certificate the listener actually serve
 reads before it writes, so a converged host reports no change.
 
 The controller fetches the RPM and the PKCS#12 certificate bundle from S3 with its own AWS
-credentials, verifies each against its pinned SHA-256, and hands the guest a copy; the guest is
-never given cloud credentials. The guest requires the signature of the pinned vendor key before
-`dnf` installs the RPM. It decodes the bundle with the system's FIPS-validated OpenSSL, and the
-key, certificate and CA are checked as a set. The playbook resolves the activation code and both
+credentials, verifies each against its pinned SHA-256, and hands the guest a copy; the role gives
+the guest no cloud credentials. The guest requires the signature of the pinned vendor key before
+`dnf` installs the RPM. It decodes the bundle with the system's FIPS-validated OpenSSL, and the key,
+certificate and CA are checked as a set. The playbook resolves the activation code and both
 passwords on the controller, and the role never logs them.
 
 ## Data volume
