@@ -46,7 +46,7 @@ nessus_scanner_defaults:
 
   #region ------ [ Registration ] ------------------------------------------------------------ #
   # The activation code that registers this scanner with Tenable and entitles it to plugins.
-  # Supplied by the playbook from a secret; never logged.
+  # Supplied by the playbook from the dispatch input; never logged.
   activation_code: ''
 
   #endregion --- [ Registration ] ------------------------------------------------------------ #

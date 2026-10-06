@@ -61,7 +61,6 @@
       },
       "Effect": "Allow",
       "Resource": [
-        "arn:aws:s3:::<account-id>-ansible/applications/nessus/activation-code.txt",
         "arn:aws:s3:::<account-id>-ansible/applications/nessus/administrator-password.txt",
         "arn:aws:s3:::<account-id>-ansible/applications/nessus/nessus-https-p12-password.txt",
         "arn:aws:s3:::<account-id>-ansible/applications/nessus/nessus-https.p12"

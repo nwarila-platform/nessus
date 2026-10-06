@@ -78,7 +78,8 @@ POLICY_VERSIONS[f"{PREFIX}_runner_s3"] = "v2"
 # v1's baseline document (all 2026-09-30).
 POLICY_VERSIONS[f"{PREFIX}_runner_ebs"] = "v4"
 EXPORTED = "2026-09-30"
-NOT_YET_APPLIED: list[str] = []
+# runner_s3 drops the activation code: the deploy now takes it at dispatch and reads no object for it.
+NOT_YET_APPLIED = [f"{PREFIX}_runner_s3"]
 
 BUCKETS = {
     "registry://aws/s3/ansible": "<account-id>-ansible",

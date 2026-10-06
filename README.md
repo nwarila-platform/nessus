@@ -57,7 +57,7 @@ flowchart LR
   gha --> tf[Terraform<br/>pinned framework]
   tf --> host[RHEL 8 STIG host]
   gha --> play[Ansible<br/>composed play]
-  s3[(S3: installer, HTTPS bundle,<br/>activation code, secrets)] --> play
+  s3[(S3: installer, HTTPS bundle,<br/>secrets)] --> play
   play --> host
   host -- registers, fetches plugins --> tenable[(Tenable)]
 ```
@@ -70,8 +70,13 @@ The `aws-deploy` workflow owns the lifecycle:
 3. An **idempotency gate** proves a second converge reports `changed=0`.
 4. Terraform destroys the host.
 
-A push to `main` that touches a deploy input proves it immediately, and a weekly schedule proves
-it recurs. `workflow_dispatch` adds four inputs:
+The deploy runs only when dispatched on `main`, because every run registers a new scanner and needs
+a fresh activation code (TD-007). `workflow_dispatch` takes five inputs:
+- `activation_code`, the fresh code, masked in the logs and never stored. Type it into the Run
+  workflow form, since `gh workflow run -f` leaves it in shell history. Never enable debug logging
+  on this workflow: the runner's diagnostic log, public here, records the dispatch inputs, so the
+  run refuses to start and the code must be treated as disclosed. A re-run reuses the same code,
+  so dispatch afresh instead;
 - `hold_minutes` keeps the scanner up for interactive work;
 - `os_swap` replaces the OS drive and proves the scanner adopts its data volume (below);
 - `absent_proof` proves `state=absent` removes it idempotently;
@@ -118,7 +123,7 @@ registration needs a fresh activation code (TD-007).
 |---|---|---|
 | Nessus RPM | `s3://<account-id>-apprepo/Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm` | Tenable's download, verified against the pinned SHA-256 |
 | HTTPS bundle and its password | `s3://<account-id>-ansible/applications/nessus/nessus-https.p12`, `…/nessus-https-p12-password.txt` | `scripts/mint-nessus-https.sh`; its digest is pinned in the playbook |
-| Activation code | `s3://<account-id>-ansible/applications/nessus/activation-code.txt` | Tenable. A Nessus Essentials code registers exactly one scanner, so every deploy that registers a new scanner needs a fresh one |
+| Activation code | Typed into the `activation_code` input at dispatch; never stored | Tenable. A Nessus Essentials code registers exactly one scanner, so every deploy that registers a new scanner needs a fresh one |
 | Administrator password | `s3://<account-id>-ansible/applications/nessus/administrator-password.txt` | One line, at least 12 characters |
 | Runner read grant | `nwarila-platform_nessus_runner_s3` v2 | Applied 2026-09-30 from [`dependencies/aws/`](dependencies/) |
 

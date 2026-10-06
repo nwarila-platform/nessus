@@ -16,9 +16,6 @@ artifacts:
 # Secret values are never pinned by digest here: rotating one is an upload, not a commit.
 secrets:
   - bucket: "registry://aws/s3/ansible"
-    key: "applications/nessus/activation-code.txt"
-    access: controller-secret-lookup
-  - bucket: "registry://aws/s3/ansible"
     key: "applications/nessus/administrator-password.txt"
     access: controller-secret-lookup
   - bucket: "registry://aws/s3/ansible"
