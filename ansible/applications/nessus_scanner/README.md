@@ -199,7 +199,7 @@ tool fails at `PROCESS | Require The Bundle To Decode`, and the message names th
 | --- | --- |
 | `localpkg_gpgcheck` | Tenable's key is trusted by pinned fingerprint before `dnf` installs the RPM |
 | fapolicyd denies untrusted scripts | No task stages a module as a file (no `async`); the inventory pipelines. After an install the trust database is refreshed |
-| `noexec` on `/tmp`, `/var/tmp`, `/home` | Nothing staged in the loader's temporary directory is executed |
+| `noexec` on `/tmp` and `/home` | Nothing staged in the loader's temporary directory is executed |
 | FIPS mode | System OpenSSL decodes the bundle; RSA-3072 and SHA-256 throughout |
 | Host firewall | Not the role's: the playbook's nftables ruleset is the host's filter, so the role works the same behind any firewall |
 

@@ -23,8 +23,8 @@
 # STIG constraints this file is shaped by:
 #   * fapolicyd denies an interpreter opening an untrusted script, so nothing here stages a
 #     module as a file: no async (async_wrapper runs a staged copy). The inventory pipelines.
-#   * /tmp, /var/tmp and /home are noexec. Nothing staged here is executed -- rpm and OpenSSL
-#     read their inputs -- so the loader's temporary directory serves.
+#   * /tmp and /home are noexec. Nothing staged here is executed -- rpm and OpenSSL read their
+#     inputs -- so the loader's temporary directory serves.
 #   * FIPS mode: the certificate bundle is decoded by the system OpenSSL, the FIPS-validated
 #     module, so a bundle this host's crypto policy would refuse fails here, by name.
 #
