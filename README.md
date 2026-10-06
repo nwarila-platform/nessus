@@ -45,8 +45,10 @@ that [`secure-wazuh`](https://github.com/nwarila-platform/secure-wazuh) introduc
   local-package signature checks and a default-drop nftables firewall are all live on the target, and every step is
   shaped by them. See the [role README](ansible/applications/nessus_scanner/README.md).
 - **No stored cloud keys.** GitHub OIDC only, gated to protected `main`, with a separate tag-scoped
-  cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest never
-  receives cloud credentials: the controller fetches every object and hands it a verified copy.
+  cleanup identity in [`aws-reaper.yml`](.github/workflows/aws-reaper.yml). The guest is handed no
+  credentials for the deployment's objects: the controller fetches every object and hands it a
+  verified copy, and the host's own instance profile carries only SSM and the org baseline's read
+  of two Windows OpenSSH cabs.
 - **Declared dependencies.** [`dependencies/`](dependencies/) records the IAM, artifacts and secrets
   the deployment depends on. A credential-free validator proves they are closed, tokenized, and in
   agreement with what the playbook consumes.
@@ -124,7 +126,7 @@ registration needs a fresh activation code (TD-007).
 | Nessus RPM | `s3://<account-id>-apprepo/Tenable Inc/Nessus/<version>/Tenable-Inc_Nessus_<version>-el8_x64.rpm` | Tenable's download, verified against the pinned SHA-256 |
 | HTTPS bundle and its password | `s3://<account-id>-ansible/applications/nessus/nessus-https.p12`, `…/nessus-https-p12-password.txt` | `scripts/mint-nessus-https.sh`; its digest is pinned in the playbook |
 | Activation code | Typed into the `activation_code` input at dispatch; never stored | Tenable. A Nessus Essentials code registers exactly one scanner, so every deploy that registers a new scanner needs a fresh one |
-| Administrator password | `s3://<account-id>-ansible/applications/nessus/administrator-password.txt` | One line, at least 12 characters |
+| Administrator password | `s3://<account-id>-ansible/applications/nessus/administrator-password.txt` | One line, at least 15 characters, with an upper-case letter, a lower-case letter, a digit and a special character |
 | Runner read grant | `nwarila-platform_nessus_runner_s3` v2 | Applied 2026-09-30 from [`dependencies/aws/`](dependencies/) |
 
 The `nwarila-platform_nessus_admin` role can write everything under

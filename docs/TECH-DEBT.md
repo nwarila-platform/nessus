@@ -187,3 +187,22 @@
 - **Exit criteria:** an AWS deploy on the STIG AMI that records
   `rpm -q fapolicyd rpm-plugin-fapolicyd`, freshly installs with both tasks removed and fapolicyd
   active, passes END, and reports changed=0 on its second converge.
+
+## TD-013 — OPEN — the Essentials licence imposes usage telemetry and the in-app guides
+
+- **Recorded:** 2026-10-05.
+- **Issue:** the role hardened `send_telemetry` to `no` and `disable_guides` to `yes`, and the
+  merge deploy of #26 (run 37063488799) failed its idempotency gate because the second converge
+  found both changed back. A lab bisection on Nessus 10.12.4 isolated the cause:
+  - registration alone (`nessuscli fetch --register-only`, no download) rewrites exactly those two
+    values to `yes` and `no`;
+  - written back, they revert at the next start, and on a running scanner at a backend reload
+    whose trigger was not isolated (within three minutes in the lab);
+  - the backend log shows the Essentials licence payload re-applied at each.
+
+  The two settings are therefore left to Nessus (`~`): usage telemetry is sent and the in-app
+  guides are shown, as the licence requires. The reads are recorded in the pull request that
+  opened this entry.
+- **Exit criteria:** a licence under which a lab scanner keeps `send_telemetry: no` and
+  `disable_guides: yes` through a restart and a backend reload; then both are declared again and
+  marked `Hardened:`.

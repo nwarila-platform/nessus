@@ -51,7 +51,8 @@ The deploy now takes the code at dispatch and reads no object for it, so v3 drop
 
 ## External dependencies
 
-This repository's host launches with the shared instance profile `nwarila-ec2-apprepo-profile`.
+This repository's host launches with the shared instance profile `nwarila-ec2-profile`, the org
+EC2 baseline: SSM, and a read of two Windows OpenSSH cabs this host never uses.
 That profile is registry-owned and declared by whichever repository owns the shared estate.
 `terraform/aws.tfvars` selects it, and the runner holds `iam:PassRole` and `iam:GetInstanceProfile`
 on it.

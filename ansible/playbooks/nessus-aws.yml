@@ -149,7 +149,9 @@
           # Supplied at dispatch (aws-deploy.yml's activation_code), never stored; never logged.
           activation_code: "{{ lookup('ansible.builtin.env', 'NESSUS_ACTIVATION_CODE') }}"
 
+          # The one Nessus account, and the password that opens it.
           administrator:
+            username: 'nessusadmin'
             password: "{{ lookup('secret', nessus_secret_prefix ~ '/administrator-password.txt') }}"
 
           # The HTTPS bundle minted by scripts/mint-nessus-https.sh: a private root CA and the
