@@ -48,11 +48,12 @@ all_systems = [
     iam_instance_profile = "nwarila-ec2-profile"
     aws_kms_alias        = "aws/ebs"
     # CIS Red Hat Enterprise Linux 8 Benchmark - STIG - v10 (owner 679593333241). FIPS mode,
-    # fapolicyd, SELinux enforcing, and noexec /tmp, /var/tmp and /home are all in force on it; the
-    # nessus_scanner role is written against each. It ships firewalld, which the playbook masks for
-    # nftables (TD-009). The publisher deprecates each version about three months after release,
-    # and the framework's lookup then no longer finds it ("Your query returned no results" at
-    # data.aws_ami.us_east_1_verified), so the pin moves to the newest version.
+    # fapolicyd, SELinux enforcing, and noexec /tmp and /home are all in force on it (/var/tmp is
+    # not; read on a v10 host 2026-10-06); the nessus_scanner role is written against each. It
+    # ships firewalld, which the playbook masks for nftables (TD-009). The publisher deprecates
+    # each version about three months after release, and the framework's lookup then no longer
+    # finds it ("Your query returned no results" at data.aws_ami.us_east_1_verified), so the pin
+    # moves to the newest version.
     ami = "ami-099eb08281f527485"
     # OS-DRIVE REPLACEMENT (immutable-OS pattern). refresh=true makes this host's OS instance
     # swap-eligible: bumping the framework's refresh_serial variable (0 -> 1 -> ...) replaces the
